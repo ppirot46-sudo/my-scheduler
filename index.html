@@ -16,7 +16,7 @@
   <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/ppirot46-sudo/my-scheduler/main/icon.png">
   <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/ppirot46-sudo/my-scheduler/main/icon.png">
 
-  <!-- PWA Manifest 내장 (단일 파일로 설치 가능하도록 구현) -->
+  <!-- PWA Manifest 내장 -->
   <link rel="manifest" href="data:application/manifest+json;utf8,%7B%22name%22%3A%22Scheduler%20%26%20Habit%20Tracker%22%2C%22short_name%22%3A%22스케줄러%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%23000000%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2Fppirot46-sudo%2Fmy-scheduler%2Fmain%2Ficon.png%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D">
 
   <script src="https://cdn.tailwindcss.com"></script>
@@ -24,7 +24,6 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
-    /* 모바일 브라우저 동적 높이(dvh) 및 Safe Area 반영 */
     html, body {
       width: 100%;
       height: 100%;
@@ -36,11 +35,9 @@
       -webkit-tap-highlight-color: transparent;
     }
     
-    /* 모바일 하단 safe-area 여백 보장 클래스 */
     .pb-safe {
       padding-bottom: env(safe-area-inset-bottom, 16px);
     }
-    /* 하단 탭 높이 + safe-area를 고려한 컨텐츠 하단 여백 */
     .content-bottom-space {
       padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
     }
@@ -53,7 +50,7 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-    // --- 계정별 localStorage 영구 저장 Custom Hook ---
+    // --- 계정별 localStorage 저장 Custom Hook ---
     function useAccountLocalStorage(account, key, initialValue) {
       const fullKey = `app_${account}__${key}`;
       const legacyKey = `app_${key}`;
@@ -81,7 +78,6 @@
       return [storedValue, setStoredValue];
     }
 
-    // 기본 localStorage Hook
     function useLocalStorage(key, initialValue) {
       const [storedValue, setStoredValue] = useState(() => {
         try {
@@ -911,7 +907,7 @@
       );
     }
 
-    // --- 2. 달력(월간) 스케줄러 컴포넌트 ---
+    // --- 2. 달력(월간) 스케줄러 컴포넌트 (선 삭제 & 간격 축소) ---
     function CalendarScheduler({ themeColor, categories, setCategories, calendarEvents, setCalendarEvents, savedColors }) {
       const today = new Date();
       const currentYear = today.getFullYear();
@@ -988,14 +984,16 @@
                 <div className="grid grid-cols-7 text-center text-xs font-semibold text-gray-400 mb-2">
                   <div className="text-red-400">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div className="text-blue-400">토</div>
                 </div>
-                <div className="grid grid-cols-7 gap-1.5">
+                {/* 간격 축소(gap-0.5) 적용 */}
+                <div className="grid grid-cols-7 gap-0.5">
                   {days.map((dayDate, dayIdx) => {
                     if (!dayDate) return <div key={`empty-${dayIdx}`} className="min-h-[80px]"></div>;
                     const dateKey = `${year}-${String(month+1).padStart(2, '0')}-${String(dayDate.getDate()).padStart(2, '0')}`;
                     const events = calendarEvents[dateKey] || [];
                     const isToday = today.toDateString() === dayDate.toDateString();
                     return (
-                      <div key={dateKey} onClick={() => setModalInfo({ show: true, dateKey, text: '', selectedColor: categories[0]?.color || themeColor })} className="min-h-[80px] border border-gray-50/70 rounded-md p-1 flex flex-col items-center cursor-pointer hover:bg-gray-50 active:bg-gray-100">
+                      /* 테두리 선 삭제 */
+                      <div key={dateKey} onClick={() => setModalInfo({ show: true, dateKey, text: '', selectedColor: categories[0]?.color || themeColor })} className="min-h-[80px] rounded-md p-1 flex flex-col items-center cursor-pointer hover:bg-gray-50 active:bg-gray-100">
                         <span className={`text-xs font-semibold w-6 h-6 flex justify-center items-center rounded-full ${isToday ? 'text-white font-bold' : 'text-gray-800'}`} style={{ backgroundColor: isToday ? themeColor : 'transparent' }}>
                           {dayDate.getDate()}
                         </span>
@@ -1067,7 +1065,7 @@
       );
     }
 
-    // --- 3. 해빗 트래커 컴포넌트 ---
+    // --- 3. 해빗 트래커 컴포넌트 (길게 눌러 삭제 기능 추가) ---
     function HabitTracker({ themeColor, habits, setHabits }) {
       const today = new Date();
       const todayDate = today.getDate();
@@ -1078,9 +1076,11 @@
       const [showReviewModal, setShowReviewModal] = useState(false);
       const [editingHabitId, setEditingHabitId] = useState(null);
       const [editingHabitText, setEditingHabitText] = useState('');
+      const [habitToDelete, setHabitToDelete] = useState(null);
 
       const reviewContainerRef = useRef(null);
       const reviewMonthRefs = useRef([]);
+      const longPressTimer = useRef(null);
 
       const months = Array.from({ length: 12 }, (_, i) => new Date(currentYear, i, 1));
 
@@ -1145,6 +1145,21 @@
         setEditingHabitId(null);
       };
 
+      // 길게 누르기(Long Press) 이벤트 핸들러
+      const handleHabitPointerDown = (habit) => {
+        longPressTimer.current = setTimeout(() => {
+          if (navigator.vibrate) navigator.vibrate(50);
+          setHabitToDelete(habit);
+        }, 500);
+      };
+
+      const handleHabitPointerUp = () => {
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+      };
+
       const completedTodayCount = habits.filter(h => isHabitDoneOnDay(h, todayDate, currentYear, currentMonthIndex)).length;
       const totalHabitsCount = habits.length;
       const habitPercent = totalHabitsCount > 0 ? Math.round((completedTodayCount / totalHabitsCount) * 100) : 0;
@@ -1192,7 +1207,14 @@
                 {habits.map(h => {
                   const isChecked = isHabitDoneOnDay(h, todayDate, currentYear, currentMonthIndex);
                   return (
-                    <div key={h.id} onClick={() => toggleHabitDay(h.id, todayDate)} className="flex items-center justify-between py-1 px-2 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors leading-tight rounded-none">
+                    <div
+                      key={h.id}
+                      onClick={() => toggleHabitDay(h.id, todayDate)}
+                      onPointerDown={() => handleHabitPointerDown(h)}
+                      onPointerUp={handleHabitPointerUp}
+                      onPointerCancel={handleHabitPointerUp}
+                      className="flex items-center justify-between py-1 px-2 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors leading-tight rounded-none select-none"
+                    >
                       <span className={`text-xs font-semibold ${isChecked ? 'line-through text-gray-400' : 'text-gray-800'}`}>{h.name}</span>
                       <div className={`w-4 h-4 rounded-none flex items-center justify-center transition-all ${isChecked ? 'text-white' : 'border border-gray-300 bg-white'}`} style={{ backgroundColor: isChecked ? themeColor : undefined }} />
                     </div>
@@ -1207,7 +1229,13 @@
                 const firstDayOff = new Date(currentYear, currentMonthIndex, 1).getDay();
 
                 return (
-                  <div key={habit.id} className="bg-white p-3 border border-gray-200 rounded-none flex flex-col justify-between">
+                  <div
+                    key={habit.id}
+                    onPointerDown={() => handleHabitPointerDown(habit)}
+                    onPointerUp={handleHabitPointerUp}
+                    onPointerCancel={handleHabitPointerUp}
+                    className="bg-white p-3 border border-gray-200 rounded-none flex flex-col justify-between select-none"
+                  >
                     {editingHabitId === habit.id ? (
                       <input
                         type="text"
@@ -1239,7 +1267,10 @@
                       {Array.from({ length: daysInCurrMonth }, (_, i) => i + 1).map(day => (
                         <button
                           key={day}
-                          onClick={() => toggleHabitDay(habit.id, day)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleHabitDay(habit.id, day);
+                          }}
                           className={`w-full h-3 rounded-none transition-colors ${day === todayDate ? 'ring-1 ring-offset-1 ring-black/40' : ''}`}
                           style={{ backgroundColor: isHabitDoneOnDay(habit, day, currentYear, currentMonthIndex) ? themeColor : '#f1f5f9' }}
                           title={`${day}일`}
@@ -1251,6 +1282,33 @@
               })}
             </div>
           </div>
+
+          {/* 해빗 삭제 확인 팝업 */}
+          {habitToDelete && (
+            <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4" onClick={() => setHabitToDelete(null)}>
+              <div className="bg-white p-6 rounded-2xl shadow-xl w-72 flex flex-col items-center gap-4 text-center" onClick={e => e.stopPropagation()}>
+                <h3 className="font-extrabold text-gray-800 text-base">해빗을 삭제하시겠습니까?</h3>
+                <p className="text-xs text-gray-500 font-medium truncate w-full px-2">"{habitToDelete.name}"</p>
+                <div className="flex gap-3 w-full mt-2">
+                  <button
+                    onClick={() => setHabitToDelete(null)}
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2.5 rounded-xl transition-colors"
+                  >
+                    아니오
+                  </button>
+                  <button
+                    onClick={() => {
+                      deleteHabit(habitToDelete.id);
+                      setHabitToDelete(null);
+                    }}
+                    className="flex-1 bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2.5 rounded-xl transition-colors"
+                  >
+                    예
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Review 모달 */}
           {showReviewModal && (
@@ -1510,7 +1568,6 @@
             </div>
           </div>
 
-          {/* 계정 관리 / 초기화 버튼 영역 */}
           <div className="flex gap-2 mt-6 pb-40">
             <button
               onClick={() => setShowAccountModal(true)}
@@ -1526,7 +1583,6 @@
             </button>
           </div>
 
-          {/* 색상 삭제 확인 팝업 */}
           {colorToDelete && (
             <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4" onClick={() => setColorToDelete(null)}>
               <div className="bg-white p-6 rounded-2xl shadow-xl w-72 flex flex-col items-center gap-4 text-center" onClick={e => e.stopPropagation()}>
@@ -1550,7 +1606,6 @@
             </div>
           )}
 
-          {/* 계정 전환 모달 */}
           {showAccountModal && (
             <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4" onClick={() => setShowAccountModal(false)}>
               <div className="bg-white p-5 rounded-2xl shadow-xl w-80 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
@@ -1615,7 +1670,6 @@
             </div>
           )}
 
-          {/* 계정 삭제 확인 팝업 */}
           {accountToDelete && (
             <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4" onClick={() => setAccountToDelete(null)}>
               <div className="bg-white p-6 rounded-2xl shadow-xl w-72 flex flex-col items-center gap-4 text-center" onClick={e => e.stopPropagation()}>
@@ -1641,7 +1695,6 @@
             </div>
           )}
 
-          {/* 초기화 확인 모달 */}
           {showResetModal && (
             <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4" onClick={() => setShowResetModal(false)}>
               <div className="bg-white p-6 rounded-2xl shadow-xl w-72 flex flex-col items-center gap-4 text-center" onClick={e => e.stopPropagation()}>

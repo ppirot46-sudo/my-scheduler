@@ -514,7 +514,6 @@
         }
       }, [selectedDateObj]);
 
-      // 터치 시작 시 Y축 위치 확인하여 상단 날짜바 이하 ~ 하단 탭바 상단 영역만 감지
       const handleGlobalTouchStart = (e) => {
         const touch = e.touches[0];
         listupTouchStartX.current = touch.clientX;
@@ -530,7 +529,6 @@
         const screenWidth = window.innerWidth;
         const screenHeight = window.innerHeight;
 
-        // 상단 날짜 영역(약 112px 이하) 및 하단 탭 바 영역(하단 60px 이상)에서는 작동하지 않도록 제한
         const topBoundary = 112; 
         const bottomBoundary = screenHeight - 65;
 
@@ -955,7 +953,6 @@
           {isListupOpen && (
             <div className="fixed inset-0 z-50 bg-black/20 flex justify-end items-start pt-16 pr-4">
               <div className="bg-white w-72 max-w-[80vw] h-[65vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-100 animate-in fade-in duration-200">
-                {/* 상단바: 10/20 포맷 및 우측 ✕ 닫기 버튼 */}
                 <div className="w-full px-5 py-4 flex items-center justify-between border-b border-gray-100 bg-white shrink-0">
                   <span className="text-2xl font-extrabold text-gray-800">
                     {slashDateFormat}
@@ -969,7 +966,6 @@
                   </button>
                 </div>
 
-                {/* 본문 리스트 */}
                 <div className="flex-1 p-4 overflow-y-auto flex flex-col bg-white">
                   <div className="flex flex-col mb-1">
                     {listupTasks.map(item => (
@@ -982,7 +978,6 @@
                     ))}
                   </div>
 
-                  {/* 일별탭과 동일한 형태의 연속 입력 필드 */}
                   <div className="flex items-center border border-gray-200 rounded my-0.5 bg-gray-50">
                     <input
                       ref={listupInputRef}
@@ -1837,7 +1832,54 @@
       const [colorToDelete, setColorToDelete] = useState(null);
 
       const fileInputRef = useRef(null);
+      const backupFileInputRef = useRef(null);
       const colorPressTimer = useRef(null);
+
+      // 데이터 백업 (내보내기)
+      const handleExportData = () => {
+        const backupData = {};
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const key = window.localStorage.key(i);
+          if (key && key.startsWith('app_')) {
+            backupData[key] = window.localStorage.getItem(key);
+          }
+        }
+        const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `scheduler_backup_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
+
+      // 데이터 복구 (불러오기)
+      const handleImportData = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const data = JSON.parse(event.target.result);
+            if (data && typeof data === 'object') {
+              Object.keys(data).forEach(key => {
+                if (key.startsWith('app_')) {
+                  window.localStorage.setItem(key, data[key]);
+                }
+              });
+              alert('데이터 복구가 완료되었습니다.');
+              window.location.reload();
+            } else {
+              alert('올바르지 않은 백업 파일 형식입니다.');
+            }
+          } catch (err) {
+            alert('파일을 읽는 중 오류가 발생했습니다.');
+          }
+        };
+        reader.readAsText(file);
+      };
 
       const handleImageUpload = (e) => {
         const file = e.target.files[0];
@@ -2001,7 +2043,7 @@
             </div>
           </div>
 
-          <div className="flex gap-2 mt-6 pb-40">
+          <div className="flex gap-2 mb-4">
             <button
               onClick={() => setShowAccountModal(true)}
               className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-3 rounded-xl transition-colors shadow-sm"
@@ -2014,6 +2056,33 @@
             >
               초기화
             </button>
+          </div>
+
+          {/* 데이터 백업 및 복구 버튼 영역 (가장 아래 위치) */}
+          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm mb-4 pb-40">
+            <label className="block text-xs font-bold text-gray-500 mb-1">데이터 백업 및 복구</label>
+            <p className="text-[10px] text-gray-400 mb-3">앱 재설치 전에 데이터를 파일로 저장하거나 복구합니다.</p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleExportData}
+                className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200 text-xs font-bold py-2.5 rounded-xl transition-colors shadow-sm"
+              >
+                백업 (내보내기)
+              </button>
+              <button
+                onClick={() => backupFileInputRef.current?.click()}
+                className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200 text-xs font-bold py-2.5 rounded-xl transition-colors shadow-sm"
+              >
+                복구 (불러오기)
+              </button>
+            </div>
+            <input
+              ref={backupFileInputRef}
+              type="file"
+              accept=".json"
+              onChange={handleImportData}
+              className="hidden"
+            />
           </div>
 
           {colorToDelete && (

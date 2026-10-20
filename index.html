@@ -907,7 +907,7 @@
       );
     }
 
-    // --- 2. 달력(월간) 스케줄러 컴포넌트 (개선된 팝업 모달 & 좁은 간격) ---
+    // --- 2. 달력(월간) 스케줄러 컴포넌트 ---
     function CalendarScheduler({ themeColor, categories, setCategories, calendarEvents, setCalendarEvents, savedColors }) {
       const today = new Date();
       const currentYear = today.getFullYear();
@@ -920,10 +920,12 @@
       // 모달 상태: show, dateKey, editIndex (null이면 새로 추가 모드 또는 목록 모드)
       const [modalInfo, setModalInfo] = useState({ show: false, dateKey: '', isAdding: false, editIndex: null });
       const [inputText, setInputText] = useState('');
-      const [selectedColor, setSelectedColor] = useState(themeColor);
+      const [selectedCategoryId, setSelectedCategoryId] = useState(categories[0]?.id || null);
+      const [selectedColor, setSelectedColor] = useState(categories[0]?.color || themeColor);
 
       const [newCatName, setNewCatName] = useState('');
       const [newCatColor, setNewCatColor] = useState(savedColors && savedColors.length > 0 ? savedColors[0] : themeColor);
+      const [editingCatId, setEditingCatId] = useState(null);
 
       useEffect(() => {
         if (savedColors && savedColors.length > 0) {
@@ -947,16 +949,20 @@
 
       const handleOpenDayModal = (dateKey) => {
         const events = calendarEvents[dateKey] || [];
+        const initCat = categories[0];
+        const defaultCatId = initCat ? initCat.id : null;
+        const defaultColor = initCat ? initCat.color : themeColor;
+
         if (events.length === 0) {
-          // 일정이 없으면 바로 추가 모드
           setModalInfo({ show: true, dateKey, isAdding: true, editIndex: null });
           setInputText('');
-          setSelectedColor(categories[0]?.color || themeColor);
+          setSelectedCategoryId(defaultCatId);
+          setSelectedColor(defaultColor);
         } else {
-          // 일정이 있으면 목록 팝업 표시
           setModalInfo({ show: true, dateKey, isAdding: false, editIndex: null });
           setInputText('');
-          setSelectedColor(categories[0]?.color || themeColor);
+          setSelectedCategoryId(defaultCatId);
+          setSelectedColor(defaultColor);
         }
       };
 
@@ -966,16 +972,21 @@
         setCalendarEvents(prev => {
           const dayEvents = [...(prev[modalInfo.dateKey] || [])];
           if (modalInfo.editIndex !== null) {
-            // 수정
-            dayEvents[modalInfo.editIndex] = { text: inputText.trim(), color: selectedColor };
+            dayEvents[modalInfo.editIndex] = {
+              text: inputText.trim(),
+              color: selectedColor,
+              categoryId: selectedCategoryId
+            };
           } else {
-            // 새 일정 추가
-            dayEvents.push({ text: inputText.trim(), color: selectedColor });
+            dayEvents.push({
+              text: inputText.trim(),
+              color: selectedColor,
+              categoryId: selectedCategoryId
+            });
           }
           return { ...prev, [modalInfo.dateKey]: dayEvents };
         });
 
-        // 추가/수정 후 팝업 상태 갱신
         setInputText('');
         setModalInfo(prev => ({ ...prev, isAdding: false, editIndex: null }));
       };
@@ -991,19 +1002,77 @@
 
       const handleStartEdit = (index, ev) => {
         setInputText(ev.text);
+        setSelectedCategoryId(ev.categoryId || null);
         setSelectedColor(ev.color);
         setModalInfo(prev => ({ ...prev, isAdding: true, editIndex: index }));
       };
 
-      const handleAddCategory = () => {
+      // 카테고리 추가 또는 편집 완료
+      const handleSaveCategory = () => {
         if (!newCatName.trim()) return;
-        const newCat = { id: Date.now().toString(), name: newCatName.trim(), color: newCatColor };
-        setCategories([...categories, newCat]);
+
+        if (editingCatId) {
+          // 1. 기존 카테고리 정보 수정
+          setCategories(categories.map(c => c.id === editingCatId ? { ...c, name: newCatName.trim(), color: newCatColor } : c));
+
+          // 2. 해당 카테고리를 가진 모든 과거/미래 일자의 일정 색상을 일괄 변경
+          setCalendarEvents(prev => {
+            const updated = { ...prev };
+            Object.keys(updated).forEach(dKey => {
+              updated[dKey] = updated[dKey].map(ev => {
+                if (ev.categoryId === editingCatId) {
+                  return { ...ev, color: newCatColor };
+                }
+                return ev;
+              });
+            });
+            return updated;
+          });
+
+          if (selectedCategoryId === editingCatId) {
+            setSelectedColor(newCatColor);
+          }
+          setEditingCatId(null);
+        } else {
+          // 새 카테고리 추가
+          const newCat = { id: Date.now().toString(), name: newCatName.trim(), color: newCatColor };
+          setCategories([...categories, newCat]);
+          setSelectedCategoryId(newCat.id);
+          setSelectedColor(newCat.color);
+        }
+
         setNewCatName('');
       };
 
-      const handleDeleteCategory = (id) => {
+      const handleStartEditCategory = (cat, e) => {
+        if (e) e.stopPropagation();
+        setEditingCatId(cat.id);
+        setNewCatName(cat.name);
+        setNewCatColor(cat.color);
+      };
+
+      const handleCancelEditCategory = () => {
+        setEditingCatId(null);
+        setNewCatName('');
+        setNewCatColor(savedColors && savedColors.length > 0 ? savedColors[0] : themeColor);
+      };
+
+      const handleDeleteCategory = (id, e) => {
+        if (e) e.stopPropagation();
         setCategories(categories.filter(c => c.id !== id));
+        if (selectedCategoryId === id) {
+          const remain = categories.filter(c => c.id !== id);
+          if (remain.length > 0) {
+            setSelectedCategoryId(remain[0].id);
+            setSelectedColor(remain[0].color);
+          } else {
+            setSelectedCategoryId(null);
+            setSelectedColor(themeColor);
+          }
+        }
+        if (editingCatId === id) {
+          handleCancelEditCategory();
+        }
       };
 
       const getDaysInMonth = (year, month) => {
@@ -1030,7 +1099,6 @@
                 <div className="grid grid-cols-7 text-center text-xs font-semibold text-gray-400 mb-1.5">
                   <div className="text-red-400">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div className="text-blue-400">토</div>
                 </div>
-                {/* 더 좁아진 일간 간격(gap-x-[1px] gap-y-[1px]) */}
                 <div className="grid grid-cols-7 gap-x-[1px] gap-y-[1px]">
                   {days.map((dayDate, dayIdx) => {
                     if (!dayDate) return <div key={`empty-${dayIdx}`} className="min-h-[72px]"></div>;
@@ -1083,26 +1151,78 @@
 
                     <div>
                       <p className="text-[11px] font-bold text-gray-400 mb-1.5">카테고리 선택</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {categories.map(cat => (
-                          <button
-                            key={cat.id}
-                            type="button"
-                            onClick={() => setSelectedColor(cat.color)}
-                            className={`flex items-center gap-1 px-2 py-0.5 rounded-none text-[10px] text-white transition-all ${selectedColor === cat.color ? 'ring-2 ring-black font-bold' : 'opacity-80'}`}
-                            style={{ backgroundColor: cat.color }}
-                          >
-                            {cat.name}
-                          </button>
-                        ))}
+                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-0.5">
+                        {categories.map(cat => {
+                          const isSelected = selectedCategoryId === cat.id;
+                          return (
+                            <div
+                              key={cat.id}
+                              onClick={() => {
+                                setSelectedCategoryId(cat.id);
+                                setSelectedColor(cat.color);
+                              }}
+                              className={`flex items-center gap-1 px-2 py-1 rounded-none text-[10px] text-white cursor-pointer transition-all ${isSelected ? 'ring-2 ring-black font-bold scale-105 z-10' : 'opacity-85 hover:opacity-100'}`}
+                              style={{ backgroundColor: cat.color }}
+                            >
+                              <span>{cat.name}</span>
+                              <div className="flex items-center gap-0.5 ml-1">
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleStartEditCategory(cat, e)}
+                                  className="text-[9px] hover:text-black/80 font-bold px-0.5 opacity-80 hover:opacity-100"
+                                  title="카테고리 편집"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleDeleteCategory(cat.id, e)}
+                                  className="text-[10px] hover:text-black font-bold px-0.5 opacity-80 hover:opacity-100"
+                                  title="삭제"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 
                     <div className="border-t border-gray-100 pt-2.5">
-                      <p className="text-[10px] font-bold text-gray-400 mb-1">카테고리 추가</p>
-                      <div className="flex gap-1">
-                        <input type="text" placeholder="새 카테고리" value={newCatName} onChange={e => setNewCatName(e.target.value)} className="flex-1 bg-gray-50 border border-gray-200 rounded-none px-2 py-1 text-[10px] outline-none" />
-                        <button type="button" onClick={handleAddCategory} className="bg-gray-800 text-white text-[10px] px-2 py-1 font-bold">추가</button>
+                      <div className="flex justify-between items-center mb-1">
+                        <p className="text-[10px] font-bold text-gray-400">
+                          {editingCatId ? '카테고리 편집 (색상 일괄 변경)' : '카테고리 추가'}
+                        </p>
+                        {editingCatId && (
+                          <button type="button" onClick={handleCancelEditCategory} className="text-[9px] text-gray-400 hover:text-black underline">
+                            취소
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex gap-1 mb-1.5">
+                        <input
+                          type="text"
+                          placeholder={editingCatId ? "변경할 카테고리명" : "새 카테고리"}
+                          value={newCatName}
+                          onChange={e => setNewCatName(e.target.value)}
+                          className="flex-1 bg-gray-50 border border-gray-200 rounded-none px-2 py-1 text-[10px] outline-none"
+                        />
+                        <button type="button" onClick={handleSaveCategory} className="bg-gray-800 text-white text-[10px] px-2 py-1 font-bold">
+                          {editingCatId ? '수정' : '추가'}
+                        </button>
+                      </div>
+                      {/* 사용자가 설정에서 등록해둔 색상과 동일한 팔레트 */}
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {(savedColors || [themeColor]).map(c => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setNewCatColor(c)}
+                            className={`w-4 h-4 rounded-full transition-transform ${newCatColor === c ? 'ring-2 ring-black scale-110' : 'opacity-70'}`}
+                            style={{ backgroundColor: c }}
+                          />
+                        ))}
                       </div>
                     </div>
 
@@ -1147,7 +1267,9 @@
                         type="button"
                         onClick={() => {
                           setInputText('');
-                          setSelectedColor(categories[0]?.color || themeColor);
+                          const firstCat = categories[0];
+                          setSelectedCategoryId(firstCat ? firstCat.id : null);
+                          setSelectedColor(firstCat ? firstCat.color : themeColor);
                           setModalInfo(prev => ({ ...prev, isAdding: true, editIndex: null }));
                         }}
                         className="w-8 h-8 rounded-full bg-black text-white font-bold text-lg flex items-center justify-center shadow-md active:scale-95 transition-transform"

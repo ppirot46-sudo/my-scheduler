@@ -1,0 +1,1750 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Scheduler & Habit Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    /* 모바일 브라우저 동적 높이(dvh) 및 Safe Area 반영 */
+    html, body {
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #ffffff;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    /* 모바일 하단 safe-area 여백 보장 클래스 */
+    .pb-safe {
+      padding-bottom: env(safe-area-inset-bottom, 16px);
+    }
+    /* 하단 탭 높이 + safe-area를 고려한 컨텐츠 하단 여백 */
+    .content-bottom-space {
+      padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+    }
+  </style>
+</head>
+<body class="bg-white min-h-screen">
+
+  <div id="root" class="w-full h-full bg-white overflow-hidden"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // --- 계정별 localStorage 영구 저장 Custom Hook ---
+    function useAccountLocalStorage(account, key, initialValue) {
+      const fullKey = `app_${account}__${key}`;
+      const legacyKey = `app_${key}`;
+
+      const [storedValue, setStoredValue] = useState(() => {
+        try {
+          const item = window.localStorage.getItem(fullKey);
+          if (item !== null) return JSON.parse(item);
+          if (account === '기본 계정') {
+            const legacyItem = window.localStorage.getItem(legacyKey);
+            if (legacyItem !== null) return JSON.parse(legacyItem);
+          }
+          return initialValue;
+        } catch (error) {
+          return initialValue;
+        }
+      });
+
+      useEffect(() => {
+        try {
+          window.localStorage.setItem(fullKey, JSON.stringify(storedValue));
+        } catch (error) {}
+      }, [fullKey, storedValue]);
+
+      return [storedValue, setStoredValue];
+    }
+
+    // 기본 localStorage Hook
+    function useLocalStorage(key, initialValue) {
+      const [storedValue, setStoredValue] = useState(() => {
+        try {
+          const item = window.localStorage.getItem(key);
+          return item !== null ? JSON.parse(item) : initialValue;
+        } catch (error) {
+          return initialValue;
+        }
+      });
+
+      useEffect(() => {
+        try {
+          window.localStorage.setItem(key, JSON.stringify(storedValue));
+        } catch (error) {}
+      }, [key, storedValue]);
+
+      return [storedValue, setStoredValue];
+    }
+
+    // 아이콘 컴포넌트
+    const CalendarIcon = ({ size = 20 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+    );
+    const ListTodoIcon = ({ size = 20 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="6" height="6" rx="1"></rect><path d="m3 17 2 2 4-4"></path><path d="M13 6h8"></path><path d="M13 12h8"></path><path d="M13 18h8"></path></svg>
+    );
+    const CircleIcon = ({ size = 20 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"></circle></svg>
+    );
+    const SettingsIcon = ({ size = 18 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+    );
+    const ChevronLeftIcon = ({ size = 20 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    );
+
+    // --- 스와이프, 더블클릭 수정 및 길게 눌러 이동 지원 할 일 컴포넌트 ---
+    const SwipeableTask = ({
+      task,
+      time,
+      onToggleComplete,
+      onUpdateText,
+      onDelete,
+      onDelay,
+      themeColor,
+      onSelectSlot,
+      onOpenMoveModal
+    }) => {
+      const [offsetX, setOffsetX] = useState(0);
+      const [isEditing, setIsEditing] = useState(false);
+      const [editText, setEditText] = useState(task.text);
+
+      const isPointerDownRef = useRef(false);
+      const startX = useRef(0);
+      const startY = useRef(0);
+      const lastTapTime = useRef(0);
+      const singleTapTimer = useRef(null);
+      const longPressTimer = useRef(null);
+      const isLongPressed = useRef(false);
+
+      const clearLongPress = () => {
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+      };
+
+      const clearSingleTapTimer = () => {
+        if (singleTapTimer.current) {
+          clearTimeout(singleTapTimer.current);
+          singleTapTimer.current = null;
+        }
+      };
+
+      const handlePointerDown = (e) => {
+        if (isEditing) return;
+        // 터치 기기에서는 TouchStart로 처리하므로 pointerdown 무시
+        if (e.pointerType === 'touch') return;
+
+        isPointerDownRef.current = true;
+        isLongPressed.current = false;
+        startX.current = e.clientX;
+        startY.current = e.clientY;
+
+        longPressTimer.current = setTimeout(() => {
+          isLongPressed.current = true;
+          if (navigator.vibrate) navigator.vibrate(50);
+          onOpenMoveModal(task, time);
+        }, 500);
+      };
+
+      const handlePointerMove = (e) => {
+        if (!isPointerDownRef.current || isEditing) return;
+
+        const diffX = e.clientX - startX.current;
+        const diffY = e.clientY - startY.current;
+
+        if (Math.hypot(diffX, diffY) > 8) {
+          clearLongPress();
+          if (Math.abs(diffX) > Math.abs(diffY)) {
+            if (diffX > 0) setOffsetX(Math.min(diffX, 100));
+            else setOffsetX(Math.max(diffX, -100));
+          }
+        }
+      };
+
+      const handlePointerUp = (e) => {
+        if (e.pointerType === 'touch') return;
+        clearLongPress();
+        if (!isPointerDownRef.current) return;
+        isPointerDownRef.current = false;
+
+        if (isLongPressed.current) return;
+
+        const distMoved = Math.hypot(e.clientX - startX.current, e.clientY - startY.current);
+
+        if (distMoved < 8) {
+          const now = Date.now();
+          if (now - lastTapTime.current < 280) {
+            // 데스크톱 더블클릭 -> 수정
+            clearSingleTapTimer();
+            setIsEditing(true);
+            lastTapTime.current = 0;
+            return;
+          }
+          lastTapTime.current = now;
+          // 데스크톱 한 번 클릭 -> 입력창
+          clearSingleTapTimer();
+          singleTapTimer.current = setTimeout(() => {
+            onSelectSlot();
+          }, 280);
+        }
+
+        if (offsetX > 50) {
+          onToggleComplete();
+        } else if (offsetX < -50) {
+          onDelay();
+        }
+        setOffsetX(0);
+      };
+
+      // 모바일 안드로이드 터치 이벤트 처리
+      const handleTouchStart = (e) => {
+        if (isEditing) return;
+        isPointerDownRef.current = true;
+        isLongPressed.current = false;
+
+        const touch = e.touches[0];
+        if (touch) {
+          startX.current = touch.clientX;
+          startY.current = touch.clientY;
+        }
+
+        clearLongPress();
+        longPressTimer.current = setTimeout(() => {
+          isLongPressed.current = true;
+          if (navigator.vibrate) navigator.vibrate(50);
+          onOpenMoveModal(task, time);
+        }, 500);
+      };
+
+      const handleTouchMove = (e) => {
+        if (!isPointerDownRef.current || isEditing) return;
+        const touch = e.touches[0];
+        if (!touch) return;
+
+        const diffX = touch.clientX - startX.current;
+        const diffY = touch.clientY - startY.current;
+
+        if (Math.hypot(diffX, diffY) > 8) {
+          clearLongPress();
+          if (Math.abs(diffX) > Math.abs(diffY)) {
+            if (diffX > 0) setOffsetX(Math.min(diffX, 100));
+            else setOffsetX(Math.max(diffX, -100));
+          }
+        }
+      };
+
+      const handleTouchEnd = (e) => {
+        clearLongPress();
+        if (!isPointerDownRef.current) return;
+        isPointerDownRef.current = false;
+
+        if (isLongPressed.current) {
+          return;
+        }
+
+        const now = Date.now();
+        const timeDiff = now - lastTapTime.current;
+
+        if (timeDiff > 0 && timeDiff < 280) {
+          // 핸드폰 두 번 연달아 탭 (더블 탭) -> 할 일 수정 모드
+          clearSingleTapTimer();
+          setIsEditing(true);
+          lastTapTime.current = 0;
+          if (e.cancelable) e.preventDefault();
+          e.stopPropagation();
+        } else {
+          // 핸드폰 한 번 탭 -> 할 일 추가/입력창 활성화
+          lastTapTime.current = now;
+          clearSingleTapTimer();
+          singleTapTimer.current = setTimeout(() => {
+            onSelectSlot();
+          }, 280);
+        }
+
+        if (offsetX > 50) {
+          onToggleComplete();
+        } else if (offsetX < -50) {
+          onDelay();
+        }
+        setOffsetX(0);
+      };
+
+      const handleFinishEdit = () => {
+        setIsEditing(false);
+        const trimmed = editText.trim();
+        if (!trimmed) {
+          onDelete();
+        } else {
+          onUpdateText(trimmed);
+        }
+      };
+
+      const getTaskTextStyle = () => {
+        if (task.delayed) return 'line-through text-gray-400';
+        if (task.completed) return 'text-gray-400';
+        return 'text-gray-800';
+      };
+
+      if (isEditing) {
+        return (
+          <div className="w-full my-0.5" onClick={(e) => e.stopPropagation()}>
+            <input
+              type="text"
+              autoFocus
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleFinishEdit();
+              }}
+              onBlur={handleFinishEdit}
+              className="w-full bg-gray-50 border border-gray-300 rounded px-2 py-0.5 outline-none text-xs text-black"
+            />
+          </div>
+        );
+      }
+
+      return (
+        <div className="relative overflow-hidden w-full mb-0.5 flex items-center select-none">
+          <div
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            style={{
+              transform: `translateX(${offsetX}px)`,
+              transition: isPointerDownRef.current ? 'none' : 'transform 0.2s ease-out'
+            }}
+            className="relative z-10 w-full py-0.5 px-1.5 touch-pan-y cursor-pointer bg-white flex items-center text-xs leading-tight rounded"
+          >
+            {task.delayed && (
+              <span
+                className="w-1.5 h-1.5 rounded-full inline-block mr-1.5 shrink-0"
+                style={{ backgroundColor: themeColor || '#000000' }}
+              />
+            )}
+            <span className={getTaskTextStyle()}>{task.text}</span>
+          </div>
+        </div>
+      );
+    };
+
+    // --- 1. 일간 스케줄러 컴포넌트 ---
+    function DailyScheduler({
+      themeColor,
+      dailyTasks,
+      setDailyTasks,
+      delayedTasks,
+      setDelayedTasks,
+      onOpenSettings,
+      startHour,
+      endHour,
+      selectedDate,
+      setSelectedDate,
+      activeTimes,
+      setActiveTimes
+    }) {
+      const [isDelayOpen, setIsDelayOpen] = useState(false);
+      const [handleOffsetY, setHandleOffsetY] = useState(0);
+      const [moveModalData, setMoveModalData] = useState(null);
+
+      const times = [];
+      for (let h = startHour; h <= endHour; h++) {
+        let displayHour = h > 24 ? h - 24 : h;
+        times.push(displayHour);
+      }
+
+      const [visibleInputTime, setVisibleInputTime] = useState(null);
+      const [inputValue, setInputValue] = useState('');
+
+      const dateContainerRef = useRef(null);
+      const activeDateRef = useRef(null);
+      const prevDateRef = useRef(selectedDate);
+      const inputRef = useRef(null);
+      const dates = Array.from({ length: 30 }, (_, i) => i + 1);
+
+      const isDateDragging = useRef(false);
+      const dateStartX = useRef(0);
+      const dateScrollLeft = useRef(0);
+
+      const goToToday = () => {
+        const todayDate = new Date().getDate();
+        setSelectedDate(todayDate);
+      };
+
+      useEffect(() => {
+        setVisibleInputTime(null);
+        setInputValue('');
+        const currentDayTasks = dailyTasks[selectedDate] || {};
+        const autoActive = {};
+
+        Object.keys(currentDayTasks).forEach(timeStr => {
+          if (currentDayTasks[timeStr] && currentDayTasks[timeStr].length > 0) {
+            autoActive[timeStr] = true;
+          }
+        });
+
+        if (prevDateRef.current !== selectedDate) {
+          prevDateRef.current = selectedDate;
+          setActiveTimes(autoActive);
+        } else {
+          setActiveTimes(prev => ({ ...autoActive, ...prev }));
+        }
+      }, [selectedDate]);
+
+      useEffect(() => {
+        if (visibleInputTime !== null) {
+          const timer = setTimeout(() => {
+            if (inputRef.current) {
+              inputRef.current.focus();
+            }
+          }, 50);
+          return () => clearTimeout(timer);
+        }
+      }, [visibleInputTime]);
+
+      const handleDatePointerDown = (e) => {
+        isDateDragging.current = true;
+        dateStartX.current = e.clientX;
+        if (dateContainerRef.current) {
+          dateScrollLeft.current = dateContainerRef.current.scrollLeft;
+        }
+      };
+
+      const handleDatePointerMove = (e) => {
+        if (!isDateDragging.current || !dateContainerRef.current) return;
+        const walk = (e.clientX - dateStartX.current) * 1.5;
+        dateContainerRef.current.scrollLeft = dateScrollLeft.current - walk;
+      };
+
+      const handleDatePointerUp = () => {
+        isDateDragging.current = false;
+      };
+
+      useEffect(() => {
+        if (activeDateRef.current && dateContainerRef.current && !isDateDragging.current) {
+          const element = activeDateRef.current;
+          dateContainerRef.current.scrollTo({
+            left: element.offsetLeft - 48 + (element.offsetWidth / 2),
+            behavior: 'smooth'
+          });
+        }
+      }, [selectedDate]);
+
+      const currentDayTasks = dailyTasks[selectedDate] || {};
+      const allTasks = Object.values(currentDayTasks).flat();
+      const totalCount = allTasks.length;
+      const completedCount = allTasks.filter(t => t.completed).length;
+      const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+      const toggleTimeActive = (time) => {
+        const nextActiveState = !activeTimes[time];
+        setActiveTimes(prev => ({ ...prev, [time]: nextActiveState }));
+
+        if (nextActiveState) {
+          setVisibleInputTime(time);
+          setInputValue('');
+        } else {
+          if (visibleInputTime === time) {
+            setVisibleInputTime(null);
+            setInputValue('');
+          }
+        }
+      };
+
+      const handleInputBlur = (time) => {
+        if (!inputValue.trim()) {
+          const timeTasks = currentDayTasks[time] || [];
+          if (timeTasks.length === 0) {
+            setActiveTimes(prev => ({ ...prev, [time]: false }));
+          }
+          if (visibleInputTime === time) {
+            setVisibleInputTime(null);
+          }
+        }
+      };
+
+      const handleAddTaskAndContinue = (time) => {
+        if (!inputValue.trim()) return;
+
+        const textToSave = inputValue.trim();
+        setDailyTasks(prev => {
+          const dayData = prev[selectedDate] || {};
+          const timeData = dayData[time] || [];
+          return {
+            ...prev,
+            [selectedDate]: {
+              ...dayData,
+              [time]: [...timeData, { id: Date.now().toString(), text: textToSave, completed: false, delayed: false }]
+            }
+          };
+        });
+
+        setInputValue('');
+        setVisibleInputTime(time);
+        setActiveTimes(prev => ({ ...prev, [time]: true }));
+
+        setTimeout(() => {
+          if (inputRef.current) {
+            inputRef.current.focus();
+          }
+        }, 50);
+      };
+
+      const updateTaskText = (time, taskId, newText) => {
+        setDailyTasks(prev => {
+          const dayData = prev[selectedDate] || {};
+          const timeData = dayData[time] || [];
+          return {
+            ...prev,
+            [selectedDate]: {
+              ...dayData,
+              [time]: timeData.map(t => t.id === taskId ? { ...t, text: newText } : t)
+            }
+          };
+        });
+      };
+
+      const toggleTaskComplete = (time, taskId) => {
+        setDailyTasks(prev => {
+          const dayData = prev[selectedDate] || {};
+          const timeData = dayData[time] || [];
+          return {
+            ...prev,
+            [selectedDate]: {
+              ...dayData,
+              [time]: timeData.map(t => t.id === taskId ? { ...t, completed: !t.completed, delayed: false } : t)
+            }
+          };
+        });
+      };
+
+      const deleteTask = (time, taskId) => {
+        setDailyTasks(prev => {
+          const dayData = prev[selectedDate] || {};
+          const timeData = dayData[time] || [];
+          const updatedTimeData = timeData.filter(t => t.id !== taskId);
+          return {
+            ...prev,
+            [selectedDate]: {
+              ...dayData,
+              [time]: updatedTimeData
+            }
+          };
+        });
+      };
+
+      const handleDelayTask = (time, task) => {
+        const isCurrentlyDelayed = !!task.delayed;
+
+        setDailyTasks(prev => {
+          const dayData = prev[selectedDate] || {};
+          const timeData = dayData[time] || [];
+          return {
+            ...prev,
+            [selectedDate]: {
+              ...dayData,
+              [time]: timeData.map(t =>
+                t.id === task.id
+                  ? { ...t, delayed: !isCurrentlyDelayed, completed: false }
+                  : t
+              )
+            }
+          };
+        });
+
+        if (isCurrentlyDelayed) {
+          setDelayedTasks(prev => prev.filter(item => !(item.text === task.text && item.originDate === selectedDate)));
+        } else {
+          setDelayedTasks(prev => [{ id: Date.now().toString(), text: task.text, originDate: selectedDate }, ...prev]);
+        }
+      };
+
+      const handleMoveTaskTime = (targetTime) => {
+        if (!moveModalData) return;
+        const { task, currentTime } = moveModalData;
+
+        if (Number(currentTime) === Number(targetTime)) {
+          setMoveModalData(null);
+          return;
+        }
+
+        setDailyTasks(prev => {
+          const dayData = prev[selectedDate] || {};
+          const currentList = dayData[currentTime] || [];
+          const targetList = dayData[targetTime] || [];
+
+          return {
+            ...prev,
+            [selectedDate]: {
+              ...dayData,
+              [currentTime]: currentList.filter(t => t.id !== task.id),
+              [targetTime]: [...targetList, task]
+            }
+          };
+        });
+
+        setActiveTimes(prev => ({ ...prev, [targetTime]: true }));
+        setMoveModalData(null);
+      };
+
+      const handleAddFromDelay = (delayItem) => {
+        const activeTimeSlot = visibleInputTime || times[0];
+        if (!activeTimes[activeTimeSlot]) {
+          setActiveTimes(prev => ({ ...prev, [activeTimeSlot]: true }));
+        }
+
+        setDailyTasks(prev => {
+          const dayData = prev[selectedDate] || {};
+          const timeData = dayData[activeTimeSlot] || [];
+          return {
+            ...prev,
+            [selectedDate]: {
+              ...dayData,
+              [activeTimeSlot]: [...timeData, { id: Date.now().toString(), text: delayItem.text, completed: false, delayed: false }]
+            }
+          };
+        });
+
+        if (delayItem.originDate !== selectedDate) {
+          setDelayedTasks(prev => prev.filter(item => item.id !== delayItem.id));
+        }
+      };
+
+      const handleRemoveDelayItem = (delayId) => {
+        setDelayedTasks(prev => prev.filter(item => item.id !== delayId));
+      };
+
+      const glowStartY = useRef(0);
+      const handleGlowPointerDown = (e) => {
+        glowStartY.current = e.clientY;
+        try { e.target.setPointerCapture(e.pointerId); } catch(err) {}
+      };
+
+      const handleGlowPointerMove = (e) => {
+        if (!glowStartY.current) return;
+        const diffY = e.clientY - glowStartY.current;
+        if (diffY < 0) {
+          setHandleOffsetY(diffY);
+        }
+      };
+
+      const handleGlowPointerUp = (e) => {
+        if (!glowStartY.current) return;
+        const diffY = e.clientY - glowStartY.current;
+        glowStartY.current = 0;
+        setHandleOffsetY(0);
+        try { e.target.releasePointerCapture(e.pointerId); } catch(err) {}
+
+        if (diffY < -15) {
+          setIsDelayOpen(true);
+        }
+      };
+
+      const handleDrawerPointerDown = (e) => {
+        glowStartY.current = e.clientY;
+      };
+
+      const handleDrawerPointerUp = (e) => {
+        const diffY = e.clientY - glowStartY.current;
+        if (diffY > 15 || Math.abs(diffY) <= 5) {
+          setIsDelayOpen(false);
+        }
+      };
+
+      return (
+        <div className="flex flex-col h-full bg-white relative select-none">
+          <style>{`.no-scrollbar::-webkit-scrollbar { display: none; } .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }`}</style>
+
+          {/* 상단 헤더 바 */}
+          <div className="w-full px-0 py-4 bg-white border-b border-gray-100 flex items-center justify-between z-30 shrink-0">
+            <div className="w-[96px] flex justify-center items-center shrink-0">
+              <button
+                onClick={goToToday}
+                className="text-2xl font-extrabold text-gray-800 hover:text-black active:scale-95 transition-transform cursor-pointer"
+                title="오늘 날짜로 이동"
+              >
+                {new Date().getMonth() + 1}
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5 pr-4">
+              <span className="text-[10px] font-semibold text-gray-400">{progressPercent}%</span>
+              <div className="w-16 bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                <div className="h-full transition-all duration-500 rounded-full" style={{ width: `${progressPercent}%`, backgroundColor: themeColor }} />
+              </div>
+              <button onClick={onOpenSettings} className="p-1 rounded-full hover:bg-gray-100 text-gray-400 transition-colors">
+                <SettingsIcon size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* 날짜 선택 탭 */}
+          <div
+            ref={dateContainerRef}
+            onPointerDown={handleDatePointerDown}
+            onPointerMove={handleDatePointerMove}
+            onPointerUp={handleDatePointerUp}
+            onPointerCancel={handleDatePointerUp}
+            className="w-full bg-white border-b border-gray-100 h-14 flex items-center overflow-x-auto no-scrollbar relative z-20 shrink-0 touch-pan-x cursor-grab active:cursor-grabbing"
+          >
+            <div className="flex px-[48px] gap-8 min-w-max items-center h-full pr-[calc(100%-48px)]">
+              {dates.map(date => {
+                const isActive = date === selectedDate;
+                return (
+                  <button
+                    key={date}
+                    ref={isActive ? activeDateRef : null}
+                    onClick={() => setSelectedDate(date)}
+                    className={`text-2xl font-extrabold transition-all duration-300 ${isActive ? '' : 'text-gray-300 hover:text-gray-400'}`}
+                    style={{ color: isActive ? themeColor : undefined }}
+                  >
+                    {date}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 타임라인 영역 */}
+          <div className="flex-1 overflow-y-auto w-full flex flex-col content-bottom-space">
+            <div className="w-full flex flex-col pt-6 pb-40 relative">
+              <div className="absolute top-0 bottom-0 left-[48px] w-[2px] -translate-x-1/2 z-0" style={{ backgroundColor: themeColor }} />
+
+              {times.map((time, index) => {
+                const isActive = activeTimes[time] || visibleInputTime === time;
+                const timeTasks = currentDayTasks[time] || [];
+                const hasTasks = timeTasks.length > 0;
+                const isInputShow = visibleInputTime === time;
+
+                return (
+                  <div
+                    key={index}
+                    data-time-slot={time}
+                    className={`relative flex items-start w-full transition-all duration-200 ${
+                      isActive ? 'my-2 min-h-[2.5rem]' : 'my-0 min-h-[1.25rem]'
+                    }`}
+                  >
+                    <div className="w-[96px] flex-shrink-0 flex justify-center items-center z-10 pt-0 relative bg-white">
+                      <button
+                        onClick={() => toggleTimeActive(time)}
+                        className={`relative flex items-center justify-center transition-all duration-300 ease-out focus:outline-none ${
+                          isActive
+                            ? 'w-9 h-9 rounded-full text-white text-base shadow-md font-bold'
+                            : hasTasks
+                            ? 'bg-white px-2 py-0.5 text-xs font-extrabold'
+                            : 'bg-white px-2 py-0.5 text-xs font-bold text-gray-500 hover:text-black'
+                        }`}
+                        style={{
+                          backgroundColor: isActive ? themeColor : '#ffffff',
+                          color: isActive ? '#ffffff' : (hasTasks ? themeColor : undefined)
+                        }}
+                      >
+                        {time}
+                      </button>
+                    </div>
+
+                    {isActive && (
+                      <div
+                        onClick={() => {
+                          if (visibleInputTime !== time) {
+                            setVisibleInputTime(time);
+                          }
+                        }}
+                        className="flex-1 pr-4 z-20 flex flex-col min-w-0 pt-1 bg-white pl-2 gap-0.5 cursor-pointer min-h-[2rem]"
+                      >
+                        {timeTasks.map(task => (
+                          <SwipeableTask
+                            key={task.id}
+                            task={task}
+                            time={time}
+                            themeColor={themeColor}
+                            onToggleComplete={() => toggleTaskComplete(time, task.id)}
+                            onUpdateText={(newText) => updateTaskText(time, task.id, newText)}
+                            onDelete={() => deleteTask(time, task.id)}
+                            onDelay={() => handleDelayTask(time, task)}
+                            onSelectSlot={() => {
+                              setVisibleInputTime(time);
+                            }}
+                            onOpenMoveModal={(task, currentTime) => {
+                              setMoveModalData({ task, currentTime });
+                            }}
+                          />
+                        ))}
+
+                        {/* 입력 창 */}
+                        {isInputShow && (
+                          <input
+                            ref={inputRef}
+                            type="text"
+                            autoFocus
+                            placeholder="할 일 입력..."
+                            value={inputValue}
+                            onChange={(e) => setInputValue(e.target.value)}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onBlur={() => handleInputBlur(time)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddTaskAndContinue(time);
+                              }
+                            }}
+                            className="w-full bg-gray-50 rounded px-2 py-1 outline-none text-xs text-black mt-0.5 placeholder-gray-300"
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 시간 이동 모달 */}
+          {moveModalData && (
+            <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4" onClick={() => setMoveModalData(null)}>
+              <div className="bg-white p-5 rounded-2xl shadow-xl w-72 flex flex-col gap-3" onClick={e => e.stopPropagation()}>
+                <h3 className="font-bold text-gray-800 text-sm text-center">시간대 이동 선택</h3>
+                <p className="text-xs text-gray-500 text-center font-medium truncate px-2">"{moveModalData.task.text}"</p>
+                <div className="grid grid-cols-4 gap-2 max-h-56 overflow-y-auto p-1 border-t border-b border-gray-100 my-1">
+                  {times.map(t => (
+                    <button
+                      key={t}
+                      onClick={() => handleMoveTaskTime(t)}
+                      className={`py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                        Number(moveModalData.currentTime) === Number(t)
+                          ? 'border-black bg-black text-white'
+                          : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      {t}시
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setMoveModalData(null)}
+                  className="w-full py-1.5 text-xs font-bold text-gray-500 hover:text-black"
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Delay 항목 존재 시 스와이프 바 */}
+          {delayedTasks.length > 0 && !isDelayOpen && (
+            <div
+              onPointerDown={handleGlowPointerDown}
+              onPointerMove={handleGlowPointerMove}
+              onPointerUp={handleGlowPointerUp}
+              onPointerCancel={handleGlowPointerUp}
+              style={{ transform: `translateY(${handleOffsetY}px)` }}
+              className="fixed bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] left-0 right-0 w-full z-40 flex items-center justify-center cursor-grab active:cursor-grabbing select-none touch-none py-1 bg-white/80 backdrop-blur border-t border-gray-100"
+            >
+              <div className="w-10 h-1 rounded-full bg-gray-300" />
+            </div>
+          )}
+
+          {/* 펼쳐진 Delay 보관함 창 */}
+          {isDelayOpen && (
+            <div className="fixed bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] left-0 right-0 w-full h-48 bg-white border-t border-gray-200 shadow-2xl z-40 transition-all duration-300 flex flex-col">
+              <div
+                onPointerDown={handleDrawerPointerDown}
+                onPointerUp={handleDrawerPointerUp}
+                className="w-full py-2 flex items-center justify-center cursor-pointer border-b border-gray-100 shrink-0 bg-white hover:bg-gray-50 transition-colors touch-none"
+              >
+                <div className="w-10 h-1 bg-gray-300 rounded-full" />
+              </div>
+
+              <div className="p-3 overflow-y-auto flex-1 flex flex-col gap-1 bg-white">
+                {delayedTasks.length === 0 ? (
+                  <p className="text-[11px] text-gray-400 text-center py-4">보관된 항목이 없습니다</p>
+                ) : (
+                  delayedTasks.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between py-1.5 px-2 border-b border-gray-50 last:border-none"
+                    >
+                      <span className="text-xs text-gray-700 truncate flex-1">{item.text}</span>
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                        <button
+                          onClick={() => handleAddFromDelay(item)}
+                          className="text-xs font-bold text-gray-500 hover:text-black px-1"
+                          title="현재 일자에 추가"
+                        >
+                          +
+                        </button>
+                        <button
+                          onClick={() => handleRemoveDelayItem(item.id)}
+                          className="text-xs text-gray-300 hover:text-red-500 px-1"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // --- 2. 달력(월간) 스케줄러 컴포넌트 ---
+    function CalendarScheduler({ themeColor, categories, setCategories, calendarEvents, setCalendarEvents, savedColors }) {
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      const currentMonthIndex = today.getMonth();
+
+      const months = Array.from({ length: 12 }, (_, i) => new Date(currentYear, i, 1));
+      const monthRefs = useRef([]);
+      const containerRef = useRef(null);
+
+      const [modalInfo, setModalInfo] = useState({ show: false, dateKey: '', text: '', selectedColor: themeColor });
+      const [newCatName, setNewCatName] = useState('');
+      const [newCatColor, setNewCatColor] = useState(savedColors && savedColors.length > 0 ? savedColors[0] : themeColor);
+
+      useEffect(() => {
+        if (savedColors && savedColors.length > 0) {
+          setNewCatColor(savedColors[0]);
+        }
+      }, [savedColors]);
+
+      useEffect(() => {
+        const scrollToCurrentMonth = () => {
+          const el = monthRefs.current[currentMonthIndex];
+          const container = containerRef.current;
+          if (el && container) {
+            container.scrollTop = el.offsetTop;
+          }
+        };
+
+        scrollToCurrentMonth();
+        const timer = setTimeout(scrollToCurrentMonth, 100);
+        return () => clearTimeout(timer);
+      }, [currentMonthIndex]);
+
+      const handleAddEvent = () => {
+        if (modalInfo.text.trim()) {
+          setCalendarEvents(prev => ({
+            ...prev,
+            [modalInfo.dateKey]: [...(prev[modalInfo.dateKey] || []), { text: modalInfo.text.trim(), color: modalInfo.selectedColor }]
+          }));
+        }
+        setModalInfo({ show: false, dateKey: '', text: '', selectedColor: themeColor });
+      };
+
+      const handleAddCategory = () => {
+        if (!newCatName.trim()) return;
+        const newCat = { id: Date.now().toString(), name: newCatName.trim(), color: newCatColor };
+        setCategories([...categories, newCat]);
+        setNewCatName('');
+      };
+
+      const handleDeleteCategory = (id) => {
+        setCategories(categories.filter(c => c.id !== id));
+      };
+
+      const getDaysInMonth = (year, month) => {
+        const date = new Date(year, month, 1);
+        const days = [];
+        for (let i = 0; i < date.getDay(); i++) days.push(null);
+        while (date.getMonth() === month) { days.push(new Date(date)); date.setDate(date.getDate() + 1); }
+        return days;
+      };
+
+      return (
+        <div ref={containerRef} className="h-full overflow-y-auto bg-gray-50 content-bottom-space">
+          {months.map((monthDate, idx) => {
+            const year = monthDate.getFullYear();
+            const month = monthDate.getMonth();
+            const days = getDaysInMonth(year, month);
+            return (
+              <div key={idx} ref={el => monthRefs.current[idx] = el} className="bg-white mb-4 border-b px-3 py-6 shadow-sm">
+                <h2 className="text-2xl font-extrabold mb-5 pl-1" style={{ color: themeColor }}>
+                  {month + 1}월 <span className="text-gray-400 text-base font-medium ml-1">{year}</span>
+                </h2>
+                <div className="grid grid-cols-7 text-center text-xs font-semibold text-gray-400 mb-2">
+                  <div className="text-red-400">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div className="text-blue-400">토</div>
+                </div>
+                <div className="grid grid-cols-7 gap-1.5">
+                  {days.map((dayDate, dayIdx) => {
+                    if (!dayDate) return <div key={`empty-${dayIdx}`} className="min-h-[80px]"></div>;
+                    const dateKey = `${year}-${String(month+1).padStart(2, '0')}-${String(dayDate.getDate()).padStart(2, '0')}`;
+                    const events = calendarEvents[dateKey] || [];
+                    const isToday = today.toDateString() === dayDate.toDateString();
+                    return (
+                      <div key={dateKey} onClick={() => setModalInfo({ show: true, dateKey, text: '', selectedColor: categories[0]?.color || themeColor })} className="min-h-[80px] border border-gray-100 rounded-md p-1 flex flex-col items-center cursor-pointer hover:bg-gray-50 active:bg-gray-100">
+                        <span className={`text-xs font-semibold w-6 h-6 flex justify-center items-center rounded-full ${isToday ? 'text-white font-bold' : 'text-gray-800'}`} style={{ backgroundColor: isToday ? themeColor : 'transparent' }}>
+                          {dayDate.getDate()}
+                        </span>
+                        <div className="w-full mt-1 flex flex-col gap-0.5">
+                          {events.map((ev, evIdx) => (
+                            <div key={evIdx} className="text-[10px] truncate rounded px-1 py-0.5 w-full text-white font-medium" style={{ backgroundColor: ev.color }}>
+                              {ev.text}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          {modalInfo.show && (
+            <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4">
+              <div className="bg-white p-5 rounded-2xl shadow-xl w-80 max-h-[90vh] overflow-y-auto flex flex-col gap-4">
+                <h3 className="font-bold text-gray-800 text-lg">일정 추가</h3>
+                <input type="text" placeholder="일정 제목 입력" value={modalInfo.text} onChange={e => setModalInfo(prev => ({ ...prev, text: e.target.value }))} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none w-full" />
+
+                <div>
+                  <p className="text-xs font-bold text-gray-500 mb-2">카테고리 선택</p>
+                  <div className="flex flex-wrap gap-2">
+                    {categories.map(cat => (
+                      <button
+                        key={cat.id}
+                        onClick={() => setModalInfo(prev => ({ ...prev, selectedColor: cat.color }))}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs text-white transition-transform ${modalInfo.selectedColor === cat.color ? 'ring-2 ring-offset-1 scale-105 font-bold' : 'opacity-80'}`}
+                        style={{ backgroundColor: cat.color, '--tw-ring-color': cat.color }}
+                      >
+                        {cat.name}
+                        <span onClick={(e) => { e.stopPropagation(); handleDeleteCategory(cat.id); }} className="ml-1 text-[10px] bg-black/20 hover:bg-black/40 rounded-full w-3.5 h-3.5 flex items-center justify-center">✕</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100 pt-3">
+                  <p className="text-xs font-bold text-gray-500 mb-2">새 카테고리 추가</p>
+                  <div className="flex gap-2 mb-2">
+                    <input type="text" placeholder="카테고리명" value={newCatName} onChange={e => setNewCatName(e.target.value)} className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 text-xs outline-none" />
+                    <button onClick={handleAddCategory} className="bg-gray-800 text-white text-xs px-3 py-1 rounded-lg font-bold">추가</button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {savedColors && savedColors.map(c => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setNewCatColor(c)}
+                        className={`w-6 h-6 rounded-full transition-transform ${newCatColor === c ? 'ring-2 ring-offset-1 ring-black scale-110' : 'opacity-70'}`}
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 border-t border-gray-100 pt-3">
+                  <button onClick={() => setModalInfo({ show: false, dateKey: '', text: '', selectedColor: themeColor })} className="text-xs text-gray-500 font-medium px-3 py-1.5">취소</button>
+                  <button onClick={handleAddEvent} className="text-xs font-bold px-4 py-1.5 rounded-lg text-white" style={{ backgroundColor: themeColor }}>추가하기</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // --- 3. 해빗 트래커 컴포넌트 ---
+    function HabitTracker({ themeColor, habits, setHabits }) {
+      const today = new Date();
+      const todayDate = today.getDate();
+      const currentYear = today.getFullYear();
+      const currentMonthIndex = today.getMonth();
+
+      const [newHabit, setNewHabit] = useState('');
+      const [showReviewModal, setShowReviewModal] = useState(false);
+
+      const reviewContainerRef = useRef(null);
+      const reviewMonthRefs = useRef([]);
+
+      const months = Array.from({ length: 12 }, (_, i) => new Date(currentYear, i, 1));
+
+      useEffect(() => {
+        if (showReviewModal) {
+          const timer = setTimeout(() => {
+            const el = reviewMonthRefs.current[currentMonthIndex];
+            const container = reviewContainerRef.current;
+            if (el && container) {
+              container.scrollTop = el.offsetTop - (container.clientHeight / 2) + (el.clientHeight / 2);
+            }
+          }, 50);
+          return () => clearTimeout(timer);
+        }
+      }, [showReviewModal, currentMonthIndex]);
+
+      const addHabit = (e) => {
+        if (e.key === 'Enter' && newHabit.trim()) {
+          setHabits([{ id: Date.now().toString(), name: newHabit.trim(), records: {} }, ...habits]);
+          setNewHabit('');
+        }
+      };
+
+      const toggleHabitDay = (habitId, day, year = currentYear, month = currentMonthIndex) => {
+        const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        setHabits(habits.map(h => {
+          if (h.id === habitId) {
+            const updated = { ...h.records };
+            if (updated[dateKey] || updated[day]) {
+              delete updated[dateKey];
+              delete updated[day];
+            } else {
+              updated[dateKey] = true;
+              updated[day] = true;
+            }
+            return { ...h, records: updated };
+          }
+          return h;
+        }));
+      };
+
+      const isHabitDoneOnDay = (habit, day, year, month) => {
+        const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        return !!(habit.records[dateKey] || (month === currentMonthIndex && year === currentYear && habit.records[day]));
+      };
+
+      const updateHabitName = (habitId, name) => {
+        setHabits(habits.map(h => h.id === habitId ? { ...h, name } : h));
+      };
+
+      const completedTodayCount = habits.filter(h => isHabitDoneOnDay(h, todayDate, currentYear, currentMonthIndex)).length;
+      const totalHabitsCount = habits.length;
+      const habitPercent = totalHabitsCount > 0 ? Math.round((completedTodayCount / totalHabitsCount) * 100) : 0;
+
+      const getDaysInMonth = (year, month) => {
+        const date = new Date(year, month, 1);
+        const days = [];
+        for (let i = 0; i < date.getDay(); i++) days.push(null);
+        while (date.getMonth() === month) { days.push(new Date(date)); date.setDate(date.getDate() + 1); }
+        return days;
+      };
+
+      return (
+        <div className="h-full bg-gray-50 overflow-y-auto content-bottom-space">
+          <div className="w-full px-4 py-4 bg-white border-b border-gray-100 flex items-center justify-between sticky top-0 z-30 shrink-0">
+            <span className="text-xs font-bold text-gray-400">{today.getMonth() + 1}/{todayDate}</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-semibold text-gray-400">{habitPercent}%</span>
+              <div className="w-16 bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                <div className="h-full transition-all duration-500 rounded-full" style={{ width: `${habitPercent}%`, backgroundColor: themeColor }} />
+              </div>
+              <button
+                onClick={() => setShowReviewModal(true)}
+                className="text-[11px] font-bold underline ml-1 cursor-pointer transition-opacity hover:opacity-80"
+                style={{ color: themeColor }}
+              >
+                review
+              </button>
+            </div>
+          </div>
+
+          <div className="p-4 pb-40">
+            <input
+              type="text"
+              placeholder="+ new"
+              value={newHabit}
+              onChange={(e) => setNewHabit(e.target.value)}
+              onKeyDown={addHabit}
+              className="w-full bg-white border border-gray-200 rounded-none px-3 py-2 text-sm outline-none mb-3"
+            />
+
+            <div className="bg-white p-2 border border-gray-200 mb-4 rounded-none">
+              <div className="flex flex-col gap-0.5">
+                {habits.length === 0 && <p className="text-xs text-gray-400 py-1">등록된 습관이 없습니다.</p>}
+                {habits.map(h => {
+                  const isChecked = isHabitDoneOnDay(h, todayDate, currentYear, currentMonthIndex);
+                  return (
+                    <div key={h.id} onClick={() => toggleHabitDay(h.id, todayDate)} className="flex items-center justify-between py-1 px-2 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors leading-tight rounded-none">
+                      <span className={`text-xs font-semibold ${isChecked ? 'line-through text-gray-400' : 'text-gray-800'}`}>{h.name}</span>
+                      <div className={`w-4 h-4 rounded-none flex items-center justify-center transition-all ${isChecked ? 'text-white' : 'border border-gray-300 bg-white'}`} style={{ backgroundColor: isChecked ? themeColor : undefined }} />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {habits.map(habit => {
+                const daysInCurrMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
+                const firstDayOff = new Date(currentYear, currentMonthIndex, 1).getDay();
+
+                return (
+                  <div key={habit.id} className="bg-white p-3 border border-gray-200 rounded-none flex flex-col justify-between">
+                    <input
+                      type="text"
+                      value={habit.name}
+                      onChange={(e) => updateHabitName(habit.id, e.target.value)}
+                      className="font-bold text-xs text-gray-800 mb-2 outline-none bg-transparent w-full"
+                    />
+                    <div className="grid grid-cols-7 gap-1 mt-auto">
+                      {Array.from({ length: firstDayOff }).map((_, i) => (
+                        <div key={`empty-${i}`} className="w-full h-3" />
+                      ))}
+                      {Array.from({ length: daysInCurrMonth }, (_, i) => i + 1).map(day => (
+                        <button
+                          key={day}
+                          onClick={() => toggleHabitDay(habit.id, day)}
+                          className={`w-full h-3 rounded-none transition-colors ${day === todayDate ? 'ring-1 ring-offset-1 ring-black/40' : ''}`}
+                          style={{ backgroundColor: isHabitDoneOnDay(habit, day, currentYear, currentMonthIndex) ? themeColor : '#f1f5f9' }}
+                          title={`${day}일`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Review 모달 */}
+          {showReviewModal && (
+            <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4" onClick={() => setShowReviewModal(false)}>
+              <div className="bg-white p-5 rounded-2xl shadow-xl w-80 max-h-[85vh] h-[580px] flex flex-col gap-3" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-end items-center border-b border-gray-100 pb-2 shrink-0">
+                  <button onClick={() => setShowReviewModal(false)} className="text-gray-400 hover:text-black text-xs font-bold p-1">✕</button>
+                </div>
+
+                <div ref={reviewContainerRef} className="flex-1 overflow-y-auto pr-1 flex flex-col gap-6">
+                  {months.map((mDate, mIdx) => {
+                    const mYear = mDate.getFullYear();
+                    const mMonth = mDate.getMonth();
+                    const mDays = getDaysInMonth(mYear, mMonth);
+                    const isCurrMonth = mMonth === currentMonthIndex && mYear === currentYear;
+
+                    return (
+                      <div key={mIdx} ref={el => reviewMonthRefs.current[mIdx] = el} className="flex flex-col">
+                        <h4 className="font-extrabold text-sm mb-2 pl-0.5" style={{ color: isCurrMonth ? themeColor : '#1f2937' }}>
+                          {mMonth + 1}월
+                        </h4>
+
+                        <div className="grid grid-cols-7 text-center text-[10px] font-bold text-gray-400 mb-1.5">
+                          <div className="text-red-400">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div className="text-blue-400">토</div>
+                        </div>
+
+                        <div className="grid grid-cols-7 gap-1.5">
+                          {mDays.map((dayDate, dayIdx) => {
+                            if (!dayDate) return <div key={`empty-${dayIdx}`} className="h-9" />;
+
+                            const dNum = dayDate.getDate();
+                            const totalHabits = habits.length;
+                            const doneCount = habits.filter(h => isHabitDoneOnDay(h, dNum, mYear, mMonth)).length;
+                            const rate = totalHabits > 0 ? doneCount / totalHabits : 0;
+                            const isTodayDate = isCurrMonth && dNum === todayDate;
+
+                            const spectrumOpacity = rate > 0 ? 0.12 + Math.pow(rate, 0.85) * 0.88 : 1;
+
+                            return (
+                              <div
+                                key={dNum}
+                                className={`h-9 rounded-lg flex flex-col items-center justify-center relative transition-all ${isTodayDate ? 'ring-2 ring-black/70 font-bold' : ''}`}
+                                style={{
+                                  backgroundColor: rate > 0 ? themeColor : '#f1f5f9',
+                                  opacity: spectrumOpacity
+                                }}
+                                title={`${mMonth + 1}월 ${dNum}일: ${Math.round(rate * 100)}% (${doneCount}/${totalHabits})`}
+                              >
+                                <span className={`text-[10px] ${rate > 0.4 ? 'text-white font-bold' : 'text-gray-700 font-semibold'}`}>
+                                  {dNum}
+                                </span>
+                                {rate > 0 && (
+                                  <span className={`text-[8px] ${rate > 0.4 ? 'text-white/90' : 'text-gray-600 font-medium'}`}>
+                                    {Math.round(rate * 100)}%
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // --- 4. 설정 화면 컴포넌트 ---
+    function SettingsScreen({
+      currentAccount,
+      accounts,
+      onSwitchAccount,
+      onDeleteAccount,
+      onResetAccount,
+      themeColor, setThemeColor,
+      userName, setUserName,
+      profileImage, setProfileImage,
+      savedColors, setSavedColors,
+      startHour, setStartHour,
+      endHour, setEndHour,
+      onBack
+    }) {
+      const [customHex, setCustomHex] = useState('');
+      const [hexError, setHexError] = useState('');
+      const [showAccountModal, setShowAccountModal] = useState(false);
+      const [showResetModal, setShowResetModal] = useState(false);
+      const [newAccountInput, setNewAccountInput] = useState('');
+      const [accountToDelete, setAccountToDelete] = useState(null);
+
+      const fileInputRef = useRef(null);
+
+      const handleImageUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => setProfileImage(reader.result);
+          reader.readAsDataURL(file);
+        }
+      };
+
+      const handleAddColor = () => {
+        const hexRegex = /^#([0-9A-F]{3}){1,2}$/i;
+        if (hexRegex.test(customHex)) {
+          const formatted = customHex.toUpperCase();
+          if (!savedColors.includes(formatted)) {
+            setSavedColors([...savedColors, formatted]);
+          }
+          setThemeColor(formatted);
+          setCustomHex('');
+          setHexError('');
+        } else {
+          setHexError('올바른 코드 입력 (예: #000000)');
+        }
+      };
+
+      const handleCreateAndSwitchAccount = () => {
+        if (!newAccountInput.trim()) return;
+        const name = newAccountInput.trim();
+        onSwitchAccount(name);
+        setNewAccountInput('');
+        setShowAccountModal(false);
+      };
+
+      const confirmDeleteAccount = () => {
+        if (accountToDelete) {
+          onDeleteAccount(accountToDelete);
+          setAccountToDelete(null);
+        }
+      };
+
+      return (
+        <div className="h-full bg-gray-50 p-4 overflow-y-auto content-bottom-space">
+          <div className="flex items-center justify-between mb-4 pt-1">
+            <button onClick={onBack} className="p-1.5 rounded-full text-gray-600 hover:bg-gray-200 transition-colors">
+              <ChevronLeftIcon size={20} />
+            </button>
+            <h2 className="text-base font-extrabold text-gray-800">설정</h2>
+            <div className="w-6"></div>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm mb-4 flex flex-col items-center">
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center cursor-pointer relative overflow-hidden mb-3 shadow-sm"
+              style={{ backgroundColor: profileImage ? 'transparent' : (themeColor || '#f3f4f6') }}
+            >
+              {profileImage && (
+                <img src={profileImage} alt="Profile" className="w-full h-full object-cover" />
+              )}
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+
+            <input
+              type="text"
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+              placeholder="이름 입력"
+              className="text-center font-extrabold text-base text-gray-800 bg-transparent border-b border-gray-200 outline-none pb-1 w-44 focus:border-black"
+            />
+          </div>
+
+          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm mb-4">
+            <label className="block text-xs font-bold text-gray-500 mb-3">work time</label>
+            <div className="flex items-center gap-2">
+              <select
+                value={startHour}
+                onChange={(e) => setStartHour(Number(e.target.value))}
+                className="bg-gray-50 border border-gray-200 rounded px-2 py-1 text-xs font-bold w-16 text-center outline-none"
+              >
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>{i}시</option>
+                ))}
+              </select>
+              <span className="text-gray-400 font-bold">~</span>
+              <select
+                value={endHour}
+                onChange={(e) => setEndHour(Number(e.target.value))}
+                className="bg-gray-50 border border-gray-200 rounded px-2 py-1 text-xs font-bold w-20 text-center outline-none"
+              >
+                {Array.from({ length: 28 }, (_, i) => i + 1).map(h => (
+                  <option key={h} value={h}>{h > 24 ? `익일 ${h-24}시` : `${h}시`}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm mb-4">
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-xs font-bold text-gray-500">테마 색상 목록</label>
+              <span className="text-[10px] text-gray-400">클릭하여 선택</span>
+            </div>
+
+            <div className="flex flex-wrap gap-2.5 mb-4">
+              {savedColors.map(c => (
+                <button
+                  key={c}
+                  onClick={() => setThemeColor(c)}
+                  className={`w-7 h-7 rounded-full transition-transform ${themeColor === c ? 'ring-2 ring-offset-2 ring-black scale-105' : ''}`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+
+            <div className="border-t border-gray-100 pt-3">
+              <label className="block text-[11px] font-semibold text-gray-400 mb-1.5">직접 색상 코드 추가 (HEX)</label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="text"
+                  value={customHex}
+                  onChange={(e) => setCustomHex(e.target.value)}
+                  placeholder="#000000"
+                  className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-xs outline-none font-mono"
+                />
+                <button
+                  onClick={handleAddColor}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white shrink-0 bg-black"
+                >
+                  추가
+                </button>
+              </div>
+              {hexError && <p className="text-[10px] text-red-500 mt-1">{hexError}</p>}
+            </div>
+          </div>
+
+          {/* 계정 관리 / 초기화 버튼 영역 */}
+          <div className="flex gap-2 mt-6 pb-40">
+            <button
+              onClick={() => setShowAccountModal(true)}
+              className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-3 rounded-xl transition-colors shadow-sm"
+            >
+              계정 전환
+            </button>
+            <button
+              onClick={() => setShowResetModal(true)}
+              className="flex-1 bg-red-50 hover:bg-red-100 text-red-500 text-xs font-bold py-3 rounded-xl transition-colors shadow-sm"
+            >
+              초기화
+            </button>
+          </div>
+
+          {/* 계정 전환 모달 */}
+          {showAccountModal && (
+            <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4" onClick={() => setShowAccountModal(false)}>
+              <div className="bg-white p-5 rounded-2xl shadow-xl w-80 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                  <h3 className="font-extrabold text-gray-800 text-base">계정 전환 / 추가</h3>
+                  <button onClick={() => setShowAccountModal(false)} className="text-gray-400 hover:text-black text-xs font-bold">✕</button>
+                </div>
+
+                <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto">
+                  <p className="text-xs font-bold text-gray-400 mb-1">기존 계정 목록</p>
+                  {accounts.map(acc => (
+                    <div
+                      key={acc}
+                      className={`flex items-center justify-between px-3 py-2 rounded-lg transition-colors ${
+                        acc === currentAccount ? 'bg-black text-white' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      <button
+                        onClick={() => { onSwitchAccount(acc); setShowAccountModal(false); }}
+                        className="flex-1 text-left text-xs font-bold flex items-center justify-between mr-2"
+                      >
+                        <span>{acc}</span>
+                        {acc === currentAccount && <span className="text-[10px] opacity-80">사용 중</span>}
+                      </button>
+                      {acc !== '기본 계정' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAccountToDelete(acc);
+                          }}
+                          className={`text-xs px-1.5 py-0.5 rounded transition-colors ${
+                            acc === currentAccount ? 'text-gray-300 hover:text-white' : 'text-gray-400 hover:text-red-500'
+                          }`}
+                          title="계정 삭제"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="border-t border-gray-100 pt-3">
+                  <p className="text-xs font-bold text-gray-400 mb-2">새 계정 생성</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="계정 이름"
+                      value={newAccountInput}
+                      onChange={e => setNewAccountInput(e.target.value)}
+                      className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-xs outline-none"
+                    />
+                    <button
+                      onClick={handleCreateAndSwitchAccount}
+                      className="bg-black text-white text-xs font-bold px-3 py-1.5 rounded-lg shrink-0"
+                    >
+                      생성 & 전환
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 계정 삭제 확인 팝업 */}
+          {accountToDelete && (
+            <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4" onClick={() => setAccountToDelete(null)}>
+              <div className="bg-white p-6 rounded-2xl shadow-xl w-72 flex flex-col items-center gap-4 text-center" onClick={e => e.stopPropagation()}>
+                <h3 className="font-extrabold text-gray-800 text-base">삭제하시겠습니까?</h3>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  <span className="font-bold text-gray-800">{accountToDelete}</span> 계정과 포함된 모든 데이터가 완전히 삭제됩니다.
+                </p>
+                <div className="flex gap-3 w-full mt-2">
+                  <button
+                    onClick={() => setAccountToDelete(null)}
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2.5 rounded-xl transition-colors"
+                  >
+                    아니오
+                  </button>
+                  <button
+                    onClick={confirmDeleteAccount}
+                    className="flex-1 bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2.5 rounded-xl transition-colors"
+                  >
+                    예
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 초기화 확인 모달 */}
+          {showResetModal && (
+            <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4" onClick={() => setShowResetModal(false)}>
+              <div className="bg-white p-6 rounded-2xl shadow-xl w-72 flex flex-col items-center gap-4 text-center" onClick={e => e.stopPropagation()}>
+                <h3 className="font-extrabold text-gray-800 text-base">진짜 초기화하시겠습니까?</h3>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  현재 접속 중인 계정(<span className="font-bold text-gray-800">{currentAccount}</span>)의 모든 할 일, 달력, 해빗 데이터가 완전히 삭제됩니다.
+                </p>
+                <div className="flex gap-3 w-full mt-2">
+                  <button
+                    onClick={() => setShowResetModal(false)}
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2.5 rounded-xl transition-colors"
+                  >
+                    아니오
+                  </button>
+                  <button
+                    onClick={() => { onResetAccount(); setShowResetModal(false); }}
+                    className="flex-1 bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2.5 rounded-xl transition-colors"
+                  >
+                    예
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // --- 계정 컨테이너 컴포넌트 ---
+    function AccountContainer({
+      currentAccount,
+      accounts,
+      setAccounts,
+      setCurrentAccount,
+      onResetAccount
+    }) {
+      const [view, setView] = useState('daily');
+
+      // 계정 독립적 localStorage State
+      const [themeColor, setThemeColor] = useAccountLocalStorage(currentAccount, 'themeColor', '#000000');
+      const [savedColors, setSavedColors] = useAccountLocalStorage(currentAccount, 'savedColors', ['#000000']);
+      const [userName, setUserName] = useAccountLocalStorage(currentAccount, 'userName', currentAccount);
+      const [profileImage, setProfileImage] = useAccountLocalStorage(currentAccount, 'profileImage', null);
+
+      const [startHour, setStartHour] = useAccountLocalStorage(currentAccount, 'startHour', 8);
+      const [endHour, setEndHour] = useAccountLocalStorage(currentAccount, 'endHour', 24);
+
+      const [categories, setCategories] = useAccountLocalStorage(currentAccount, 'categories', []);
+      const [dailyTasks, setDailyTasks] = useAccountLocalStorage(currentAccount, 'dailyTasks', {});
+      const [delayedTasks, setDelayedTasks] = useAccountLocalStorage(currentAccount, 'delayedTasks', []);
+      const [calendarEvents, setCalendarEvents] = useAccountLocalStorage(currentAccount, 'calendarEvents', {});
+      const [habits, setHabits] = useAccountLocalStorage(currentAccount, 'habits', []);
+
+      const [selectedDate, setSelectedDate] = useState(new Date().getDate());
+      const [activeTimes, setActiveTimes] = useState({});
+
+      const handleSwitchAccount = (targetAccount) => {
+        if (!accounts.includes(targetAccount)) {
+          setAccounts([...accounts, targetAccount]);
+        }
+        setCurrentAccount(targetAccount);
+      };
+
+      const handleDeleteAccount = (targetAccount) => {
+        const updatedAccounts = accounts.filter(acc => acc !== targetAccount);
+        setAccounts(updatedAccounts);
+
+        const prefix = `app_${targetAccount}__`;
+        const keysToRemove = [];
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const key = window.localStorage.key(i);
+          if (key && key.startsWith(prefix)) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach(k => window.localStorage.removeItem(k));
+
+        if (currentAccount === targetAccount) {
+          setCurrentAccount('기본 계정');
+        }
+      };
+
+      return (
+        <div className="flex flex-col h-full relative">
+          <div className="flex-1 overflow-hidden">
+            {view === 'daily' && (
+              <DailyScheduler
+                themeColor={themeColor}
+                dailyTasks={dailyTasks}
+                setDailyTasks={setDailyTasks}
+                delayedTasks={delayedTasks}
+                setDelayedTasks={setDelayedTasks}
+                onOpenSettings={() => setView('settings')}
+                startHour={startHour}
+                endHour={endHour}
+                selectedDate={selectedDate}
+                setSelectedDate={setSelectedDate}
+                activeTimes={activeTimes}
+                setActiveTimes={setActiveTimes}
+              />
+            )}
+            {view === 'calendar' && (
+              <CalendarScheduler
+                themeColor={themeColor}
+                categories={categories}
+                setCategories={setCategories}
+                calendarEvents={calendarEvents}
+                setCalendarEvents={setCalendarEvents}
+                savedColors={savedColors}
+              />
+            )}
+            {view === 'habit' && (
+              <HabitTracker
+                themeColor={themeColor}
+                habits={habits}
+                setHabits={setHabits}
+              />
+            )}
+            {view === 'settings' && (
+              <SettingsScreen
+                currentAccount={currentAccount}
+                accounts={accounts}
+                onSwitchAccount={handleSwitchAccount}
+                onDeleteAccount={handleDeleteAccount}
+                onResetAccount={onResetAccount}
+                themeColor={themeColor}
+                setThemeColor={setThemeColor}
+                userName={userName}
+                setUserName={setUserName}
+                profileImage={profileImage}
+                setProfileImage={setProfileImage}
+                savedColors={savedColors}
+                setSavedColors={setSavedColors}
+                startHour={startHour}
+                setStartHour={setStartHour}
+                endHour={endHour}
+                setEndHour={setEndHour}
+                onBack={() => setView('daily')}
+              />
+            )}
+          </div>
+
+          {/* 하단 네비게이션 탭 */}
+          <div className="fixed bottom-0 left-0 right-0 h-[calc(3.5rem+env(safe-area-inset-bottom,0px))] bg-white/95 backdrop-blur border-t border-gray-100 flex items-center justify-around z-50 pb-safe pt-1">
+            <button onClick={() => setView('daily')} className={`flex flex-col items-center gap-1 w-16 ${view === 'daily' ? 'text-black font-bold' : 'text-gray-400'}`} style={{ color: view === 'daily' ? themeColor : undefined }}>
+              <ListTodoIcon />
+              <span className="text-[10px] font-bold">일간</span>
+            </button>
+            <button onClick={() => setView('calendar')} className={`flex flex-col items-center gap-1 w-16 ${view === 'calendar' ? 'text-black font-bold' : 'text-gray-400'}`} style={{ color: view === 'calendar' ? themeColor : undefined }}>
+              <CalendarIcon />
+              <span className="text-[10px] font-bold">달력</span>
+            </button>
+            <button onClick={() => setView('habit')} className={`flex flex-col items-center gap-1 w-16 ${view === 'habit' ? 'text-black font-bold' : 'text-gray-400'}`} style={{ color: view === 'habit' ? themeColor : undefined }}>
+              <CircleIcon />
+              <span className="text-[10px] font-bold">해빗</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // --- 최상위 App 컴포넌트 ---
+    function App() {
+      const [currentAccount, setCurrentAccount] = useLocalStorage('app_currentAccount', '기본 계정');
+      const [accounts, setAccounts] = useLocalStorage('app_accountsList', ['기본 계정']);
+      const [resetToken, setResetToken] = useState(0);
+
+      const handleResetCurrentAccount = () => {
+        const prefix = `app_${currentAccount}__`;
+        const keysToRemove = [];
+
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const key = window.localStorage.key(i);
+          if (key && key.startsWith(prefix)) {
+            keysToRemove.push(key);
+          }
+        }
+
+        if (currentAccount === '기본 계정') {
+          keysToRemove.push('app_dailyTasks', 'app_calendarEvents', 'app_habits', 'app_delayedTasks', 'app_userName', 'app_profileImage', 'app_themeColor');
+        }
+
+        keysToRemove.forEach(k => window.localStorage.removeItem(k));
+        setResetToken(prev => prev + 1);
+      };
+
+      return (
+        <AccountContainer
+          key={`${currentAccount}_${resetToken}`}
+          currentAccount={currentAccount}
+          accounts={accounts}
+          setAccounts={setAccounts}
+          setCurrentAccount={setCurrentAccount}
+          onResetAccount={handleResetCurrentAccount}
+        />
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

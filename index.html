@@ -907,7 +907,7 @@
       );
     }
 
-    // --- 2. 달력(월간) 스케줄러 컴포넌트 (미세 간격 & 얇은 태스크 뱃지 수정) ---
+    // --- 2. 달력(월간) 스케줄러 컴포넌트 (개선된 팝업 모달 & 좁은 간격) ---
     function CalendarScheduler({ themeColor, categories, setCategories, calendarEvents, setCalendarEvents, savedColors }) {
       const today = new Date();
       const currentYear = today.getFullYear();
@@ -917,7 +917,11 @@
       const monthRefs = useRef([]);
       const containerRef = useRef(null);
 
-      const [modalInfo, setModalInfo] = useState({ show: false, dateKey: '', text: '', selectedColor: themeColor });
+      // 모달 상태: show, dateKey, editIndex (null이면 새로 추가 모드 또는 목록 모드)
+      const [modalInfo, setModalInfo] = useState({ show: false, dateKey: '', isAdding: false, editIndex: null });
+      const [inputText, setInputText] = useState('');
+      const [selectedColor, setSelectedColor] = useState(themeColor);
+
       const [newCatName, setNewCatName] = useState('');
       const [newCatColor, setNewCatColor] = useState(savedColors && savedColors.length > 0 ? savedColors[0] : themeColor);
 
@@ -941,14 +945,54 @@
         return () => clearTimeout(timer);
       }, [currentMonthIndex]);
 
-      const handleAddEvent = () => {
-        if (modalInfo.text.trim()) {
-          setCalendarEvents(prev => ({
-            ...prev,
-            [modalInfo.dateKey]: [...(prev[modalInfo.dateKey] || []), { text: modalInfo.text.trim(), color: modalInfo.selectedColor }]
-          }));
+      const handleOpenDayModal = (dateKey) => {
+        const events = calendarEvents[dateKey] || [];
+        if (events.length === 0) {
+          // 일정이 없으면 바로 추가 모드
+          setModalInfo({ show: true, dateKey, isAdding: true, editIndex: null });
+          setInputText('');
+          setSelectedColor(categories[0]?.color || themeColor);
+        } else {
+          // 일정이 있으면 목록 팝업 표시
+          setModalInfo({ show: true, dateKey, isAdding: false, editIndex: null });
+          setInputText('');
+          setSelectedColor(categories[0]?.color || themeColor);
         }
-        setModalInfo({ show: false, dateKey: '', text: '', selectedColor: themeColor });
+      };
+
+      const handleSaveEvent = () => {
+        if (!inputText.trim()) return;
+
+        setCalendarEvents(prev => {
+          const dayEvents = [...(prev[modalInfo.dateKey] || [])];
+          if (modalInfo.editIndex !== null) {
+            // 수정
+            dayEvents[modalInfo.editIndex] = { text: inputText.trim(), color: selectedColor };
+          } else {
+            // 새 일정 추가
+            dayEvents.push({ text: inputText.trim(), color: selectedColor });
+          }
+          return { ...prev, [modalInfo.dateKey]: dayEvents };
+        });
+
+        // 추가/수정 후 팝업 상태 갱신
+        setInputText('');
+        setModalInfo(prev => ({ ...prev, isAdding: false, editIndex: null }));
+      };
+
+      const handleDeleteEvent = (index, e) => {
+        if (e) e.stopPropagation();
+        setCalendarEvents(prev => {
+          const dayEvents = [...(prev[modalInfo.dateKey] || [])];
+          dayEvents.splice(index, 1);
+          return { ...prev, [modalInfo.dateKey]: dayEvents };
+        });
+      };
+
+      const handleStartEdit = (index, ev) => {
+        setInputText(ev.text);
+        setSelectedColor(ev.color);
+        setModalInfo(prev => ({ ...prev, isAdding: true, editIndex: index }));
       };
 
       const handleAddCategory = () => {
@@ -970,6 +1014,8 @@
         return days;
       };
 
+      const currentModalEvents = modalInfo.dateKey ? (calendarEvents[modalInfo.dateKey] || []) : [];
+
       return (
         <div ref={containerRef} className="h-full overflow-y-auto bg-gray-50 content-bottom-space">
           {months.map((monthDate, idx) => {
@@ -984,19 +1030,18 @@
                 <div className="grid grid-cols-7 text-center text-xs font-semibold text-gray-400 mb-1.5">
                   <div className="text-red-400">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div className="text-blue-400">토</div>
                 </div>
-                {/* 미세 간격(gap-x-0.5 gap-y-0.5) 적용 */}
-                <div className="grid grid-cols-7 gap-x-0.5 gap-y-0.5">
+                {/* 더 좁아진 일간 간격(gap-x-[1px] gap-y-[1px]) */}
+                <div className="grid grid-cols-7 gap-x-[1px] gap-y-[1px]">
                   {days.map((dayDate, dayIdx) => {
                     if (!dayDate) return <div key={`empty-${dayIdx}`} className="min-h-[72px]"></div>;
                     const dateKey = `${year}-${String(month+1).padStart(2, '0')}-${String(dayDate.getDate()).padStart(2, '0')}`;
                     const events = calendarEvents[dateKey] || [];
                     const isToday = today.toDateString() === dayDate.toDateString();
                     return (
-                      <div key={dateKey} onClick={() => setModalInfo({ show: true, dateKey, text: '', selectedColor: categories[0]?.color || themeColor })} className="min-h-[72px] rounded-md p-0.5 flex flex-col items-center cursor-pointer hover:bg-gray-50 active:bg-gray-100">
+                      <div key={dateKey} onClick={() => handleOpenDayModal(dateKey)} className="min-h-[72px] rounded-sm p-0.5 flex flex-col items-center cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors">
                         <span className={`text-xs font-semibold w-5 h-5 flex justify-center items-center rounded-full ${isToday ? 'text-white font-bold' : 'text-gray-800'}`} style={{ backgroundColor: isToday ? themeColor : 'transparent' }}>
                           {dayDate.getDate()}
                         </span>
-                        {/* 더 얇은 할 일 바 (py-[1px], text-[9px]) 적용 */}
                         <div className="w-full mt-0.5 flex flex-col gap-0.5">
                           {events.map((ev, evIdx) => (
                             <div key={evIdx} className="text-[9px] leading-tight truncate rounded-sm px-1 py-[1px] w-full text-white font-medium" style={{ backgroundColor: ev.color }}>
@@ -1012,52 +1057,108 @@
             );
           })}
 
+          {/* 심플한 직사각형 일정 관리 팝업 모달 */}
           {modalInfo.show && (
-            <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4">
-              <div className="bg-white p-5 rounded-2xl shadow-xl w-80 max-h-[90vh] overflow-y-auto flex flex-col gap-4">
-                <h3 className="font-bold text-gray-800 text-lg">일정 추가</h3>
-                <input type="text" placeholder="일정 제목 입력" value={modalInfo.text} onChange={e => setModalInfo(prev => ({ ...prev, text: e.target.value }))} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none w-full" />
+            <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4" onClick={() => setModalInfo({ show: false, dateKey: '', isAdding: false, editIndex: null })}>
+              <div className="bg-white p-5 rounded-none shadow-xl w-80 max-h-[80vh] flex flex-col relative border border-gray-200" onClick={e => e.stopPropagation()}>
+                
+                {/* 헤더 */}
+                <div className="flex items-center justify-between border-b border-gray-100 pb-2.5 mb-3">
+                  <h3 className="font-bold text-gray-800 text-sm">{modalInfo.dateKey} 일정</h3>
+                  <button onClick={() => setModalInfo({ show: false, dateKey: '', isAdding: false, editIndex: null })} className="text-gray-400 hover:text-black text-xs font-bold p-1">✕</button>
+                </div>
 
-                <div>
-                  <p className="text-xs font-bold text-gray-500 mb-2">카테고리 선택</p>
-                  <div className="flex flex-wrap gap-2">
-                    {categories.map(cat => (
-                      <button
-                        key={cat.id}
-                        onClick={() => setModalInfo(prev => ({ ...prev, selectedColor: cat.color }))}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs text-white transition-transform ${modalInfo.selectedColor === cat.color ? 'ring-2 ring-offset-1 scale-105 font-bold' : 'opacity-80'}`}
-                        style={{ backgroundColor: cat.color, '--tw-ring-color': cat.color }}
-                      >
-                        {cat.name}
-                        <span onClick={(e) => { e.stopPropagation(); handleDeleteCategory(cat.id); }} className="ml-1 text-[10px] bg-black/20 hover:bg-black/40 rounded-full w-3.5 h-3.5 flex items-center justify-center">✕</span>
+                {/* 입력/수정 폼 */}
+                {modalInfo.isAdding ? (
+                  <div className="flex flex-col gap-3">
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="일정 내용을 입력하세요"
+                      value={inputText}
+                      onChange={e => setInputText(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleSaveEvent()}
+                      className="bg-gray-50 border border-gray-200 rounded-none px-3 py-2 text-xs outline-none w-full"
+                    />
+
+                    <div>
+                      <p className="text-[11px] font-bold text-gray-400 mb-1.5">카테고리 선택</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {categories.map(cat => (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => setSelectedColor(cat.color)}
+                            className={`flex items-center gap-1 px-2 py-0.5 rounded-none text-[10px] text-white transition-all ${selectedColor === cat.color ? 'ring-2 ring-black font-bold' : 'opacity-80'}`}
+                            style={{ backgroundColor: cat.color }}
+                          >
+                            {cat.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-gray-100 pt-2.5">
+                      <p className="text-[10px] font-bold text-gray-400 mb-1">카테고리 추가</p>
+                      <div className="flex gap-1">
+                        <input type="text" placeholder="새 카테고리" value={newCatName} onChange={e => setNewCatName(e.target.value)} className="flex-1 bg-gray-50 border border-gray-200 rounded-none px-2 py-1 text-[10px] outline-none" />
+                        <button type="button" onClick={handleAddCategory} className="bg-gray-800 text-white text-[10px] px-2 py-1 font-bold">추가</button>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 border-t border-gray-100 pt-3 mt-1">
+                      <button type="button" onClick={() => setModalInfo(prev => ({ ...prev, isAdding: false, editIndex: null }))} className="text-xs text-gray-500 font-medium px-3 py-1">취소</button>
+                      <button type="button" onClick={handleSaveEvent} className="text-xs font-bold px-4 py-1 text-white bg-black">
+                        {modalInfo.editIndex !== null ? '수정 저장' : '추가'}
                       </button>
-                    ))}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  /* 일정 목록 보기 */
+                  <div className="flex flex-col flex-1 min-h-[120px]">
+                    <div className="flex-1 overflow-y-auto max-h-56 flex flex-col gap-1.5 pr-1">
+                      {currentModalEvents.length === 0 ? (
+                        <p className="text-xs text-gray-400 text-center py-8">등록된 일정이 없습니다.</p>
+                      ) : (
+                        currentModalEvents.map((ev, idx) => (
+                          <div
+                            key={idx}
+                            onClick={() => handleStartEdit(idx, ev)}
+                            className="flex items-center justify-between p-2 rounded-none cursor-pointer hover:opacity-90 transition-opacity text-white text-xs"
+                            style={{ backgroundColor: ev.color }}
+                          >
+                            <span className="truncate flex-1 font-medium mr-2">{ev.text}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteEvent(idx, e)}
+                              className="text-white/80 hover:text-white font-bold px-1 text-xs"
+                              title="삭제"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
 
-                <div className="border-t border-gray-100 pt-3">
-                  <p className="text-xs font-bold text-gray-500 mb-2">새 카테고리 추가</p>
-                  <div className="flex gap-2 mb-2">
-                    <input type="text" placeholder="카테고리명" value={newCatName} onChange={e => setNewCatName(e.target.value)} className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 text-xs outline-none" />
-                    <button onClick={handleAddCategory} className="bg-gray-800 text-white text-xs px-3 py-1 rounded-lg font-bold">추가</button>
-                  </div>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {savedColors && savedColors.map(c => (
+                    {/* 우측 하단 + 모양 일정 추가 버튼 */}
+                    <div className="flex justify-end pt-3 mt-auto border-t border-gray-100">
                       <button
-                        key={c}
                         type="button"
-                        onClick={() => setNewCatColor(c)}
-                        className={`w-6 h-6 rounded-full transition-transform ${newCatColor === c ? 'ring-2 ring-offset-1 ring-black scale-110' : 'opacity-70'}`}
-                        style={{ backgroundColor: c }}
-                      />
-                    ))}
+                        onClick={() => {
+                          setInputText('');
+                          setSelectedColor(categories[0]?.color || themeColor);
+                          setModalInfo(prev => ({ ...prev, isAdding: true, editIndex: null }));
+                        }}
+                        className="w-8 h-8 rounded-full bg-black text-white font-bold text-lg flex items-center justify-center shadow-md active:scale-95 transition-transform"
+                        title="일정 추가"
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
 
-                <div className="flex justify-end gap-2 border-t border-gray-100 pt-3">
-                  <button onClick={() => setModalInfo({ show: false, dateKey: '', text: '', selectedColor: themeColor })} className="text-xs text-gray-500 font-medium px-3 py-1.5">취소</button>
-                  <button onClick={handleAddEvent} className="text-xs font-bold px-4 py-1.5 rounded-lg text-white" style={{ backgroundColor: themeColor }}>추가하기</button>
-                </div>
               </div>
             </div>
           )}

@@ -12,8 +12,12 @@
   <meta name="apple-mobile-web-app-title" content="스케줄러">
   <meta name="theme-color" content="#ffffff">
   
+  <!-- 파비콘 및 아이콘 지정 -->
+  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/ppirot46-sudo/my-scheduler/main/icon.png">
+  <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/ppirot46-sudo/my-scheduler/main/icon.png">
+
   <!-- PWA Manifest 내장 (단일 파일로 설치 가능하도록 구현) -->
-  <link rel="manifest" href="data:application/manifest+json;utf8,%7B%22name%22%3A%22Scheduler%20%26%20Habit%20Tracker%22%2C%22short_name%22%3A%22스케줄러%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%23000000%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22https%3A%2F%2Fcdn-icons-png.flaticon.com%2F512%2F3652%2F3652191.png%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D">
+  <link rel="manifest" href="data:application/manifest+json;utf8,%7B%22name%22%3A%22Scheduler%20%26%20Habit%20Tracker%22%2C%22short_name%22%3A%22스케줄러%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%23000000%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2Fppirot46-sudo%2Fmy-scheduler%2Fmain%2Ficon.png%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D">
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -977,8 +981,8 @@
             const month = monthDate.getMonth();
             const days = getDaysInMonth(year, month);
             return (
-              <div key={idx} ref={el => monthRefs.current[idx] = el} className="bg-white mb-4 border-b px-3 py-6 shadow-sm">
-                <h2 className="text-2xl font-extrabold mb-5 pl-1" style={{ color: themeColor }}>
+              <div key={idx} ref={el => monthRefs.current[idx] = el} className="bg-white mb-3 border-b px-3 py-3 shadow-sm">
+                <h2 className="text-2xl font-extrabold mb-2 pl-1" style={{ color: themeColor }}>
                   {month + 1}월 <span className="text-gray-400 text-base font-medium ml-1">{year}</span>
                 </h2>
                 <div className="grid grid-cols-7 text-center text-xs font-semibold text-gray-400 mb-2">
@@ -991,7 +995,7 @@
                     const events = calendarEvents[dateKey] || [];
                     const isToday = today.toDateString() === dayDate.toDateString();
                     return (
-                      <div key={dateKey} onClick={() => setModalInfo({ show: true, dateKey, text: '', selectedColor: categories[0]?.color || themeColor })} className="min-h-[80px] border border-gray-100 rounded-md p-1 flex flex-col items-center cursor-pointer hover:bg-gray-50 active:bg-gray-100">
+                      <div key={dateKey} onClick={() => setModalInfo({ show: true, dateKey, text: '', selectedColor: categories[0]?.color || themeColor })} className="min-h-[80px] border border-gray-50/70 rounded-md p-1 flex flex-col items-center cursor-pointer hover:bg-gray-50 active:bg-gray-100">
                         <span className={`text-xs font-semibold w-6 h-6 flex justify-center items-center rounded-full ${isToday ? 'text-white font-bold' : 'text-gray-800'}`} style={{ backgroundColor: isToday ? themeColor : 'transparent' }}>
                           {dayDate.getDate()}
                         </span>
@@ -1072,6 +1076,8 @@
 
       const [newHabit, setNewHabit] = useState('');
       const [showReviewModal, setShowReviewModal] = useState(false);
+      const [editingHabitId, setEditingHabitId] = useState(null);
+      const [editingHabitText, setEditingHabitText] = useState('');
 
       const reviewContainerRef = useRef(null);
       const reviewMonthRefs = useRef([]);
@@ -1123,6 +1129,20 @@
 
       const updateHabitName = (habitId, name) => {
         setHabits(habits.map(h => h.id === habitId ? { ...h, name } : h));
+      };
+
+      const deleteHabit = (habitId) => {
+        setHabits(habits.filter(h => h.id !== habitId));
+      };
+
+      const handleFinishHabitEdit = (habitId) => {
+        const trimmed = editingHabitText.trim();
+        if (!trimmed) {
+          deleteHabit(habitId);
+        } else {
+          updateHabitName(habitId, trimmed);
+        }
+        setEditingHabitId(null);
       };
 
       const completedTodayCount = habits.filter(h => isHabitDoneOnDay(h, todayDate, currentYear, currentMonthIndex)).length;
@@ -1188,12 +1208,30 @@
 
                 return (
                   <div key={habit.id} className="bg-white p-3 border border-gray-200 rounded-none flex flex-col justify-between">
-                    <input
-                      type="text"
-                      value={habit.name}
-                      onChange={(e) => updateHabitName(habit.id, e.target.value)}
-                      className="font-bold text-xs text-gray-800 mb-2 outline-none bg-transparent w-full"
-                    />
+                    {editingHabitId === habit.id ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editingHabitText}
+                        onChange={(e) => setEditingHabitText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleFinishHabitEdit(habit.id);
+                        }}
+                        onBlur={() => handleFinishHabitEdit(habit.id)}
+                        className="font-bold text-xs text-gray-800 mb-2 outline-none bg-gray-50 border border-gray-300 px-1 py-0.5 rounded w-full"
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={habit.name}
+                        onDoubleClick={() => {
+                          setEditingHabitId(habit.id);
+                          setEditingHabitText(habit.name);
+                        }}
+                        onChange={(e) => updateHabitName(habit.id, e.target.value)}
+                        className="font-bold text-xs text-gray-800 mb-2 outline-none bg-transparent w-full cursor-pointer"
+                      />
+                    )}
                     <div className="grid grid-cols-7 gap-1 mt-auto">
                       {Array.from({ length: firstDayOff }).map((_, i) => (
                         <div key={`empty-${i}`} className="w-full h-3" />

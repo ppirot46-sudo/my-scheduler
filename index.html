@@ -4,6 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Scheduler & Habit Tracker</title>
+  
+  <!-- 모바일 PWA 및 웹앱 바로가기 설정 -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="스케줄러">
+  <meta name="theme-color" content="#ffffff">
+  
+  <!-- PWA Manifest 내장 (단일 파일로 설치 가능하도록 구현) -->
+  <link rel="manifest" href="data:application/manifest+json;utf8,%7B%22name%22%3A%22Scheduler%20%26%20Habit%20Tracker%22%2C%22short_name%22%3A%22스케줄러%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%23000000%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22https%3A%2F%2Fcdn-icons-png.flaticon.com%2F512%2F3652%2F3652191.png%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D">
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -143,7 +154,6 @@
 
       const handlePointerDown = (e) => {
         if (isEditing) return;
-        // 터치 기기에서는 TouchStart로 처리하므로 pointerdown 무시
         if (e.pointerType === 'touch') return;
 
         isPointerDownRef.current = true;
@@ -186,14 +196,12 @@
         if (distMoved < 8) {
           const now = Date.now();
           if (now - lastTapTime.current < 280) {
-            // 데스크톱 더블클릭 -> 수정
             clearSingleTapTimer();
             setIsEditing(true);
             lastTapTime.current = 0;
             return;
           }
           lastTapTime.current = now;
-          // 데스크톱 한 번 클릭 -> 입력창
           clearSingleTapTimer();
           singleTapTimer.current = setTimeout(() => {
             onSelectSlot();
@@ -208,7 +216,6 @@
         setOffsetX(0);
       };
 
-      // 모바일 안드로이드 터치 이벤트 처리
       const handleTouchStart = (e) => {
         if (isEditing) return;
         isPointerDownRef.current = true;
@@ -250,22 +257,18 @@
         if (!isPointerDownRef.current) return;
         isPointerDownRef.current = false;
 
-        if (isLongPressed.current) {
-          return;
-        }
+        if (isLongPressed.current) return;
 
         const now = Date.now();
         const timeDiff = now - lastTapTime.current;
 
         if (timeDiff > 0 && timeDiff < 280) {
-          // 핸드폰 두 번 연달아 탭 (더블 탭) -> 할 일 수정 모드
           clearSingleTapTimer();
           setIsEditing(true);
           lastTapTime.current = 0;
           if (e.cancelable) e.preventDefault();
           e.stopPropagation();
         } else {
-          // 핸드폰 한 번 탭 -> 할 일 추가/입력창 활성화
           lastTapTime.current = now;
           clearSingleTapTimer();
           singleTapTimer.current = setTimeout(() => {
@@ -293,7 +296,7 @@
 
       const getTaskTextStyle = () => {
         if (task.delayed) return 'line-through text-gray-400';
-        if (task.completed) return 'text-gray-400';
+        if (task.completed) return 'line-through text-gray-400';
         return 'text-gray-800';
       };
 
@@ -1302,8 +1305,10 @@
       const [showResetModal, setShowResetModal] = useState(false);
       const [newAccountInput, setNewAccountInput] = useState('');
       const [accountToDelete, setAccountToDelete] = useState(null);
+      const [colorToDelete, setColorToDelete] = useState(null);
 
       const fileInputRef = useRef(null);
+      const colorPressTimer = useRef(null);
 
       const handleImageUpload = (e) => {
         const file = e.target.files[0];
@@ -1326,6 +1331,32 @@
           setHexError('');
         } else {
           setHexError('올바른 코드 입력 (예: #000000)');
+        }
+      };
+
+      const handleColorPointerDown = (c) => {
+        colorPressTimer.current = setTimeout(() => {
+          if (savedColors.length > 1) {
+            setColorToDelete(c);
+          }
+        }, 500);
+      };
+
+      const handleColorPointerUp = () => {
+        if (colorPressTimer.current) {
+          clearTimeout(colorPressTimer.current);
+          colorPressTimer.current = null;
+        }
+      };
+
+      const confirmDeleteColor = () => {
+        if (colorToDelete) {
+          const updated = savedColors.filter(c => c !== colorToDelete);
+          setSavedColors(updated);
+          if (themeColor === colorToDelete) {
+            setThemeColor(updated[0] || '#000000');
+          }
+          setColorToDelete(null);
         }
       };
 
@@ -1403,7 +1434,7 @@
           <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm mb-4">
             <div className="flex justify-between items-center mb-2">
               <label className="text-xs font-bold text-gray-500">테마 색상 목록</label>
-              <span className="text-[10px] text-gray-400">클릭하여 선택</span>
+              <span className="text-[10px] text-gray-400">길게 눌러 삭제</span>
             </div>
 
             <div className="flex flex-wrap gap-2.5 mb-4">
@@ -1411,6 +1442,9 @@
                 <button
                   key={c}
                   onClick={() => setThemeColor(c)}
+                  onPointerDown={() => handleColorPointerDown(c)}
+                  onPointerUp={handleColorPointerUp}
+                  onPointerLeave={handleColorPointerUp}
                   className={`w-7 h-7 rounded-full transition-transform ${themeColor === c ? 'ring-2 ring-offset-2 ring-black scale-105' : ''}`}
                   style={{ backgroundColor: c }}
                 />
@@ -1453,6 +1487,30 @@
               초기화
             </button>
           </div>
+
+          {/* 색상 삭제 확인 팝업 */}
+          {colorToDelete && (
+            <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50 p-4" onClick={() => setColorToDelete(null)}>
+              <div className="bg-white p-6 rounded-2xl shadow-xl w-72 flex flex-col items-center gap-4 text-center" onClick={e => e.stopPropagation()}>
+                <h3 className="font-extrabold text-gray-800 text-base">색상을 삭제하시겠습니까?</h3>
+                <div className="w-8 h-8 rounded-full border shadow-sm" style={{ backgroundColor: colorToDelete }} />
+                <div className="flex gap-3 w-full mt-2">
+                  <button
+                    onClick={() => setColorToDelete(null)}
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2.5 rounded-xl transition-colors"
+                  >
+                    아니오
+                  </button>
+                  <button
+                    onClick={confirmDeleteColor}
+                    className="flex-1 bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2.5 rounded-xl transition-colors"
+                  >
+                    예
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* 계정 전환 모달 */}
           {showAccountModal && (
@@ -1584,7 +1642,6 @@
     }) {
       const [view, setView] = useState('daily');
 
-      // 계정 독립적 localStorage State
       const [themeColor, setThemeColor] = useAccountLocalStorage(currentAccount, 'themeColor', '#000000');
       const [savedColors, setSavedColors] = useAccountLocalStorage(currentAccount, 'savedColors', ['#000000']);
       const [userName, setUserName] = useAccountLocalStorage(currentAccount, 'userName', currentAccount);

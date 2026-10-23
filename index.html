@@ -1111,6 +1111,7 @@
       const currentYear = today.getFullYear();
       const currentMonthIndex = today.getMonth();
 
+      // 과거 12개월 ~ 미래 12개월 (총 25개월, 현재 달 index: 12)
       const months = [];
       for (let i = -12; i <= 12; i++) {
         months.push(new Date(currentYear, currentMonthIndex + i, 1));
@@ -1137,7 +1138,18 @@
       };
 
       useEffect(() => {
-        scrollToCurrentMonth();
+        // DOM 레이아웃 및 렌더링 완료 타이밍 보장
+        const timer1 = requestAnimationFrame(() => {
+          scrollToCurrentMonth();
+        });
+        const timer2 = setTimeout(() => {
+          scrollToCurrentMonth();
+        }, 50);
+
+        return () => {
+          cancelAnimationFrame(timer1);
+          clearTimeout(timer2);
+        };
       }, []);
 
       useEffect(() => {

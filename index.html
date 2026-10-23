@@ -19,6 +19,17 @@
   <!-- PWA Manifest 내장 -->
   <link rel="manifest" href="data:application/manifest+json;utf8,%7B%22name%22%3A%22Scheduler%20%26%20Habit%20Tracker%22%2C%22short_name%22%3A%22스케줄러%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%23000000%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2Fppirot46-sudo%2Fmy-scheduler%2Fmain%2Ficon.png%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D">
 
+  <!-- 서비스 워커 등록 (오프라인 지원) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('Service Worker 등록 성공'))
+          .catch(err => console.log('Service Worker 등록 실패:', err));
+      });
+    }
+  </script>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -507,10 +518,7 @@
       useEffect(() => {
         if (activeDateRef.current && dateContainerRef.current) {
           const element = activeDateRef.current;
-          dateContainerRef.current.scrollTo({
-            left: element.offsetLeft - 48 + (element.offsetWidth / 2),
-            behavior: 'smooth'
-          });
+          dateContainerRef.current.scrollLeft = element.offsetLeft - 48 + (element.offsetWidth / 2);
         }
       }, [selectedDateObj]);
 
@@ -1124,19 +1132,21 @@
         const el = monthRefs.current[12];
         const container = containerRef.current;
         if (el && container) {
-          container.scrollTo({ top: el.offsetTop, behavior: 'smooth' });
+          container.scrollTop = el.offsetTop;
         }
       };
 
       useEffect(() => {
         scrollToCurrentMonth();
-        const timer = setTimeout(scrollToCurrentMonth, 100);
-        return () => clearTimeout(timer);
       }, []);
 
       useEffect(() => {
         if (calendarClickToken > 0) {
-          scrollToCurrentMonth();
+          const el = monthRefs.current[12];
+          const container = containerRef.current;
+          if (el && container) {
+            container.scrollTo({ top: el.offsetTop, behavior: 'smooth' });
+          }
         }
       }, [calendarClickToken]);
 
